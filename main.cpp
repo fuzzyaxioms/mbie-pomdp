@@ -13,7 +13,14 @@ double logmul (double a, double b){
 
 double logadd (double a, double b){
 	double m = max(a, b);
-	return m + log(exp(a - m) + exp(b - m));
+	if (exp(m) == 0.0)
+	{
+		return m;
+	}
+	else
+	{
+		return m + log(exp(a - m) + exp(b - m));
+	}
 }
 
 #define TNS TIGER_NUMSTATES
@@ -88,6 +95,13 @@ struct POMDP
 		t[1][1][0] = 0.5;
 		t[1][1][1] = 0.5;
 		
+		// listening most of the time gets the right door
+		double acc = 1;
+		o[0][2][0] = acc;
+		o[0][2][1] = 1-acc;
+		o[1][2][0] = 1-acc;
+		o[1][2][1] = acc;
+		
 		// now after a reset, both obs have equal chance
 		o[0][0][0] = 0.5;
 		o[0][0][1] = 0.5;
@@ -97,18 +111,25 @@ struct POMDP
 		o[1][0][1] = 0.5;
 		o[1][1][0] = 0.5;
 		o[1][1][1] = 0.5;
-		// listening most of the time gets the right door
-		double acc = 1;
-		o[0][2][0] = acc;
-		o[0][2][1] = 1-acc;
-		o[1][2][0] = 1-acc;
-		o[1][2][1] = acc;
+		
+		// suppose after a reset the obs actually does tell you something
+		//o[0][0][0] = acc;
+		//o[0][0][1] = 1-acc;
+		//o[0][1][0] = acc;
+		//o[0][1][1] = 1-acc;
+		//o[1][0][0] = 1-acc;
+		//o[1][0][1] = acc;
+		//o[1][1][0] = 1-acc;
+		//o[1][1][1] = acc;
 		
 		// start
-		curr_state = 0;
+		curr_state = rand() % numstates;
 	}
 	void step(int action)
 	{
+		int prev_state = curr_state;
+		(void)prev_state;
+		
 		// advance to the next state
 		double accum = 0.0;
 		double target = sample_unif();
@@ -143,6 +164,8 @@ struct POMDP
 		obs.push_back(new_obs);
 		rewards.push_back(r[curr_state][action]);
 		curr_state = next_state;
+		
+		//cout << "action " << action << " " << prev_state << " -> " << next_state << endl;
 	}
 	void set(double (&new_o)[TNS][TNA][TNO])
 	{
@@ -205,22 +228,22 @@ void em(POMDP &pomdp, double (&learned_o)[TNS][TNA][TNO])
 	double alpha [T + 1][pomdp.numstates];
 	double beta [T + 1][pomdp.numstates];
 	double gamma [T + 1][pomdp.numstates];
+	double pi [2] = {0.5, 0.5};
 	while (max >= .001){
 		max = 0;
-		double pi [2] = {0.5, 0.5};
 		//double psi [T + 1][pomdp.numstates][pomdp.numstates];
 		double gammasum [pomdp.numactions];
 		double obsgammasum [pomdp.numactions][pomdp.numobs];
-		std::fill(alpha[0], alpha[T + 1] + 2, (0.0));
-		std::fill(beta[0], beta[T + 1] + 2, (0.0));
-		std::fill(gamma[0], gamma[T + 1] + 2, (0.0));
+		//std::fill(alpha[0], alpha[T + 1] + 2, (0.0));
+		//std::fill(beta[0], beta[T + 1] + 2, (0.0));
+		//std::fill(gamma[0], gamma[T + 1] + 2, (0.0));
 
 		for (int i = 0; i < pomdp.numstates; i++){
 			alpha[0][i] = logmul(log(pi[i]), log(o[i][pomdp.actions[0]][pomdp.obs[0]]));
 		}
 		for (int l = 1; l <= T; l++){
 			for (int j = 0; j < pomdp.numstates; j++){
-				double sum = 0;
+				double sum = log(0.0);
 				for (int i = 0; i < pomdp.numstates; i++){
 					sum = logadd(sum, logmul(alpha[l - 1][i], log(pomdp.t[i][pomdp.actions[l]][j])));
 				}
@@ -233,6 +256,7 @@ void em(POMDP &pomdp, double (&learned_o)[TNS][TNA][TNO])
 		}
 		for (int l = T - 1; l >= 0; l--){
 			for (int i = 0; i < pomdp.numstates; i++){
+				beta[l][i] = log(0.0);
 				for (int j = 0; j < pomdp.numstates; j++){
 					double prod = logmul(log(pomdp.t[i][pomdp.actions[l + 1]][j]), log(o[j][pomdp.actions[l + 1]][pomdp.obs[l + 1]]));
 					prod = logmul(prod, beta[l + 1][j]);
@@ -300,12 +324,12 @@ int main()
 	srand(time(0));
 	cout << "hello all" << endl;
 
-	int B = 100;
+	int B = 1;
 	int reps = 1;
 	int steps = 1;
 	double sum_rewards = 0;
-	int listen_time = 50;
-	int sim_steps = 1000;
+	int listen_time = 10;
+	int sim_steps = 100;
 	
 	vector<double> rs(max(steps,sim_steps), 0.0);
 
@@ -338,7 +362,6 @@ int main()
 			//cout << "next action: " << next_action << endl;
 			
 			// advance the pomdp
-			pomdp.step(next_action);
 			for (int simi = 0; simi < sim_steps; ++simi)
 			{
 				//cout << "simi " << simi << ": " << pomdp.curr_state << endl;
@@ -351,6 +374,7 @@ int main()
 					pomdp.step(2);
 				}
 			}
+			pomdp.step(next_action);
 			//cout << "Curr Belief -- ";
 			//print_vector(plan.curr_belief);
 			// update beliefs
