@@ -211,12 +211,22 @@ void initialize(POMDP &pomdp, double (&o)[TNS][TNA][TNO])
 	o[1][2][1] = p;
 }
 
+// state vector
+struct SVec
+{
+	double &operator[](int i)
+	{
+		return arr[i];
+	}
+	double arr[TNS];
+};
+
 void em(POMDP &pomdp, double (&learned_o)[TNS][TNA][TNO])
 {
 	double max = 1;
 	double o[TNS][TNA][TNO];
 	initialize(pomdp, o);
-	double prev_o[pomdp.numstates][pomdp.numactions][pomdp.numobs];
+	double prev_o[TNS][TNA][TNO];
 	for (int x = 0; x < pomdp.numstates; x++){
 		for (int y = 0; y < pomdp.numactions; y++){
 			for (int z = 0; z < pomdp.numobs; z++){
@@ -224,16 +234,18 @@ void em(POMDP &pomdp, double (&learned_o)[TNS][TNA][TNO])
 			}
 		}
 	}
+	
+	//typedef double SVec[TNS];
 	const int T = pomdp.obs.size() - 1;
-	double alpha [T + 1][pomdp.numstates];
-	double beta [T + 1][pomdp.numstates];
-	double gamma [T + 1][pomdp.numstates];
+	vector<SVec> alpha(T+1);
+	vector<SVec> beta(T+1);
+	vector<SVec> gamma(T+1);
 	double pi [2] = {0.5, 0.5};
 	while (max >= .001){
 		max = 0;
 		//double psi [T + 1][pomdp.numstates][pomdp.numstates];
-		double gammasum [pomdp.numactions];
-		double obsgammasum [pomdp.numactions][pomdp.numobs];
+		double gammasum [TNA];
+		double obsgammasum [TNS][TNO];
 		//std::fill(alpha[0], alpha[T + 1] + 2, (0.0));
 		//std::fill(beta[0], beta[T + 1] + 2, (0.0));
 		//std::fill(gamma[0], gamma[T + 1] + 2, (0.0));
@@ -328,8 +340,8 @@ int main()
 	int reps = 1;
 	int steps = 1;
 	double sum_rewards = 0;
-	int listen_time = 10;
-	int sim_steps = 1000;
+	int listen_time = 20;
+	int sim_steps = 10000;
 	
 	vector<double> rs(max(steps,sim_steps), 0.0);
 
