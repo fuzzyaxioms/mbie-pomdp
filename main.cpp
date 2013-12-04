@@ -324,12 +324,12 @@ int main()
 	srand(time(0));
 	cout << "hello all" << endl;
 
-	int B = 1;
+	int B = 100;
 	int reps = 1;
 	int steps = 1;
 	double sum_rewards = 0;
 	int listen_time = 10;
-	int sim_steps = 100;
+	int sim_steps = 1000;
 	
 	vector<double> rs(max(steps,sim_steps), 0.0);
 
@@ -413,7 +413,7 @@ int main()
 					//learnedpomdp.step(rand() % pomdp.numactions);
 				}
 				double new_o[TNS][TNA][TNO];
-				em(pomdp, new_o);
+				em(learnedpomdp, new_o);
 				for (int i = 0; i < pomdp.numstates; i++){
 					for (int j = 0; j < pomdp.numactions; j++){
 						for (int k = 0; k < pomdp.numobs; k++){
