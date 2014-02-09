@@ -32,7 +32,7 @@ double logadd (double a, double b){
 #define OPT true
 #define FILENAME "2sensor_opt_rewards_100alpha.txt"
 
-ofstream outFile;
+// ofstream outFile;
 clock_t t;
 clock_t rept;
 
@@ -181,19 +181,19 @@ struct POMDP
                                 break;
                         }
                 }
-                // outFile << new_obs << endl;
+                // cout << new_obs << endl;
                 // for (int i = 0; i < TIGER_NUMSTATES; ++i)
                 // {
                 //         for (int j = 0; j < TIGER_NUMACTIONS; ++j)
                 //         {
                 //                 for (int k = 0; k < TIGER_NUMOBS; ++k)
                 //                 {
-                //                         //outFile << plan.opt_z[i][j][k] << " ";
-                //                         outFile << o[i][j][k] << " ";
+                //                         //cout << plan.opt_z[i][j][k] << " ";
+                //                         cout << o[i][j][k] << " ";
                 //                 }
-                //                 outFile << "|";
+                //                 cout << "|";
                 //         }
-                //         outFile << endl;
+                //         cout << endl;
                 // }
                 assert(new_obs >= 0);
                 // update the stuff
@@ -202,7 +202,7 @@ struct POMDP
                 rewards.push_back(r[curr_state][action]);
                 curr_state = next_state;
                 
-                //outFile << "action " << action << " " << prev_state << " -> " << next_state << endl;
+                //cout << "action " << action << " " << prev_state << " -> " << next_state << endl;
         }
         void set(double (&new_o)[TNS][TNA][TNO])
         {
@@ -222,6 +222,7 @@ struct POMDP
 void initialize(POMDP &pomdp, double (&o)[TNS][TNA][TNO])
 {
         double p;
+        double p2;
         double total;
         for (int i = 0; i < pomdp.numstates; ++i)
         {
@@ -271,7 +272,7 @@ void em(POMDP &pomdp, double (&o)[TNS][TNA][TNO], double (&best_o)[TNS][TNA][TNO
                 double max = 1;
                 double loglike;
                 double loglike2; // This is another way to calculate the log likelihood and is used as a sanity check.
-                double learned_o[TNS][TNA][TNO];
+                // double learned_o[TNS][TNA][TNO];
                 // double o[TNS][TNA][TNO];
                 // initialize(pomdp, o);
                 double prev_o[TNS][TNA][TNO];
@@ -289,9 +290,10 @@ void em(POMDP &pomdp, double (&o)[TNS][TNA][TNO], double (&best_o)[TNS][TNA][TNO
                 vector<SVec> gamma(T+1);
                 double gammasum [TNA];
                 double obsgammasum [TNS][TNO];
-                double pi [2] = {0.5, 0.5};
-                // double pi [3] = {0.3333, 0.3333, 0.3334};
                 for (int iters = 0; iters < 10 and max > 0.001; iters++){
+                        // This should be initialized outside of the loop, but for some odd reason
+                        // its value seems to change after each iteration...so we'll put it here for now.
+                        double pi [2] = {0.5, 0.5};
                         max = 0;
                         for (int i = 0; i < pomdp.numstates; i++){
                                 alpha[0][i] = logmul(log(pi[i]), log(o[i][pomdp.actions[0]][pomdp.obs[0]]));
@@ -398,7 +400,6 @@ void em(POMDP &pomdp, double (&o)[TNS][TNA][TNO], double (&best_o)[TNS][TNA][TNO
                                                         max = delta;
                                                 }
                                                 o[i][a][z] = exp(logmul(obsgammasum[a][z], -gammasum[a]));
-                                                // outFile << o[i][a][z] << endl;
                                                 prev_o[i][a][z] = exp(logmul(obsgammasum[a][z], -gammasum[a]));
                                         }
                                 }
@@ -409,46 +410,46 @@ void em(POMDP &pomdp, double (&o)[TNS][TNA][TNO], double (&best_o)[TNS][TNA][TNO
                         //         {
                         //                 for (int k = 0; k < TIGER_NUMOBS; ++k)
                         //                 {
-                        //                         //outFile << plan.opt_z[i][j][k] << " ";
-                        //                         outFile << o[i][j][k] << " ";
+                        //                         //cout << plan.opt_z[i][j][k] << " ";
+                        //                         cout << o[i][j][k] << " ";
                         //                 }
-                        //                 outFile << "|";
+                        //                 cout << "|";
                         //         }
-                        //         outFile << endl;
+                        //         cout << endl;
                         // }
-                        for (int x = 0; x < pomdp.numstates; x++){
-                                for (int y = 0; y < pomdp.numactions; y++){
-                                        for (int z = 0; z < pomdp.numobs; z++){
-                                                learned_o[x][y][z] = o[x][y][z];
-                                        }
-                                }
-                        }
+                        // for (int x = 0; x < pomdp.numstates; x++){
+                        //         for (int y = 0; y < pomdp.numactions; y++){
+                        //                 for (int z = 0; z < pomdp.numobs; z++){
+                        //                         learned_o[x][y][z] = o[x][y][z];
+                        //                 }
+                        //         }
+                        // }
                 }
                 if (prevloglike < loglike){
-                        //outFile << loglike << endl;
+                        //cout << loglike << endl;
                         prevloglike = loglike;
                         for (int x = 0; x < pomdp.numstates; x++){
                                 for (int y = 0; y < pomdp.numactions; y++){
                                         for (int z = 0; z < pomdp.numobs; z++){
-                                                best_o[x][y][z] = learned_o[x][y][z];
+                                                best_o[x][y][z] = o[x][y][z];
                                         }
                                 }
                         }                
                 }
-                //outFile << "em called" << endl;
+                //cout << "em called" << endl;
                 //for (int l = 0; l <= T; l++){
-                        //outFile << "sim step " << l << ": ";
+                        //cout << "sim step " << l << ": ";
                         //for (int i = 0; i < pomdp.numstates; i++) {
-                                //outFile << exp(gamma[l][i]) << " ";
+                                //cout << exp(gamma[l][i]) << " ";
                         //}
-                        //outFile << endl;
+                        //cout << endl;
                 //}
         }
         // for (int x = 0; x < pomdp.numstates; x++){
         //         for (int y = 0; y < pomdp.numactions; y++){
         //                 for (int z = 0; z < pomdp.numobs; z++){
         //                         learned_o[x][y][z] = best_o[x][y][z];
-        //                         outFile << learned_o[x][y][z] << endl;
+        //                         cout << learned_o[x][y][z] << endl;
         //                 }
         //         }
         // }                
@@ -457,12 +458,12 @@ void em(POMDP &pomdp, double (&o)[TNS][TNA][TNO], double (&best_o)[TNS][TNA][TNO
 int main()
 {
         srand(time(0));
-        outFile.open("outstream_100alpha.txt", ios::out | ios::app);
-        outFile << "hello all" << endl;
+        // outFile.open("outstream_100alpha.txt", ios::out | ios::app);
+        cout << "hello all" << endl;
 
         int B = 10;
         int reps = 10;
-        int steps = 8000;
+        int steps = 1000;
         double sum_rewards = 0;
         int listen_time = 2;
         int sim_steps = 0;
@@ -485,24 +486,22 @@ int main()
                 }
         }
 
-        ofstream rewardsFile;
-        rewardsFile.open(FILENAME, ios::out | ios::app);
+        // ofstream rewardsFile;
+        // rewardsFile.open(FILENAME, ios::out | ios::app);
         
         for (int rep = 0; rep < reps; ++rep)
         {
-                rept = clock();
-                outFile << rep << endl;
-                ofstream rewardsFile;
-                rewardsFile.open (FILENAME, ios::out | ios::app);
+                // rept = clock();
+                // cout << rep << endl;
                 POMDP pomdp;
                 initialize(pomdp, o);
                 Planning<POMDP,double[TNS][TNA][TNS],double[TNS][TNA][TNO]> plan(pomdp);
                 for (int iter = 0; iter < steps; iter++){
-                        //outFile << "---------- Iteration " << iter+1 << " ----------" << endl;
-                        //outFile << "Curr Belief -- ";
+                        // cout << "---------- Iteration " << iter+1 << " ----------" << endl;
+                        //cout << "Curr Belief -- ";
                         //print_vector(plan.curr_belief);
                         int next_action = 1;
-                        t = clock();
+                        // t = clock();
                         if (OPT) { 
                                 next_action = plan.backup_plan(pomdp.t, zeros, o, err); 
                         }
@@ -510,13 +509,13 @@ int main()
                                 next_action = plan.backup_plan(pomdp.t, zeros, o, zeros); 
                         }
                         t = clock() - t;
-                        // outFile << "Step: " << ((float) t)/CLOCKS_PER_SEC << endl;
-                        // outFile << "next action: " << next_action << endl;
+                        // cout << "Step: " << ((float) t)/CLOCKS_PER_SEC << endl;
+                        // cout << "next action: " << next_action << endl;
                         
                         // advance the pomdp
                         for (int simi = 0; simi < sim_steps; ++simi)
                         {
-                                //outFile << "simi " << simi << ": " << pomdp.curr_state << endl;
+                                //cout << "simi " << simi << ": " << pomdp.curr_state << endl;
                                 if (simi % (listen_time) == 0)
                                 {
                                         pomdp.step((simi/listen_time) % 2);
@@ -527,33 +526,33 @@ int main()
                                 }
                         }
                         pomdp.step(next_action);
-                        //outFile << "Curr Belief -- ";
+                        //cout << "Curr Belief -- ";
                         //print_vector(plan.curr_belief);
                         // update beliefs
-                        t = clock();
+                        // t = clock();
                         plan.belief_update();
-                        t = clock() - t;
-                        // outFile << "Belief Update: " << ((float) t)/CLOCKS_PER_SEC << endl;
+                        // t = clock() - t;
+                        // cout << "Belief Update: " << ((float) t)/CLOCKS_PER_SEC << endl;
                         //plan.print_points();
-                         //outFile << "o" << endl;
+                         //cout << "o" << endl;
                          //for (int i = 0; i < TIGER_NUMSTATES; ++i)
                          //{
                                 //for (int j = 0; j < TIGER_NUMACTIONS; ++j)
                                 //{
                                         //for (int k = 0; k < TIGER_NUMSTATES; ++k)
                                         //{
-                                                //outFile << plan.opt_t[i][j][k] << " ";
+                                                //cout << plan.opt_t[i][j][k] << " ";
                                         //}
-                                        //outFile << "| ";
+                                        //cout << "| ";
                                 //}
-                                //outFile << endl;
+                                //cout << endl;
                          //}
                         double res[TNS][TNA][TNO];
-                        t = clock();
+                        // t = clock();
                         initialize(pomdp, res);
                         em(pomdp, res, res);
-                        t = clock() - t;
-                        // outFile << "EM: " << ((float) t)/CLOCKS_PER_SEC << endl;
+                        // t = clock() - t;
+                        // cout << "EM: " << ((float) t)/CLOCKS_PER_SEC << endl;
                         for (int x = 0; x < pomdp.numstates; x++){
                                 for (int y = 0; y < pomdp.numactions; y++){
                                         for (int z = 0; z < pomdp.numstates; z++){
@@ -562,9 +561,9 @@ int main()
                                         }
                                 }
                         }
-                        t = clock();
+                        // t = clock();
                         if (OPT) {
-                                //outFile << pomdp.obs.size() << endl;
+                                //cout << pomdp.obs.size() << endl;
                                 double boot_o[B][pomdp.numstates][pomdp.numactions][pomdp.numobs];
                                 for (int b = 0; b < B; b++){
                                         POMDP learnedpomdp;
@@ -608,50 +607,50 @@ int main()
                                 }
                         }
                         // t = clock() - t;
-                        // outFile << "Bootstrap: " << ((float) t)/CLOCKS_PER_SEC << endl;
+                        // cout << "Bootstrap: " << ((float) t)/CLOCKS_PER_SEC << endl;
 
                         // t = clock();
-                        // outFile << "o" << endl;
+                        // cout << "o" << endl;
                         // for (int i = 0; i < TIGER_NUMSTATES; ++i)
                         // {
                         //         for (int j = 0; j < TIGER_NUMACTIONS; ++j)
                         //         {
                         //                 for (int k = 0; k < TIGER_NUMOBS; ++k)
                         //                 {
-                        //                         //outFile << plan.opt_z[i][j][k] << " ";
-                        //                         outFile << o[i][j][k] << " ";
+                        //                         //cout << plan.opt_z[i][j][k] << " ";
+                        //                         cout << o[i][j][k] << " ";
                         //                 }
-                        //                 outFile << "|";
+                        //                 cout << "|";
                         //         }
-                        //         outFile << endl;
+                        //         cout << endl;
                         // }
-                        // outFile << "ci" << endl;
+                        // cout << "ci" << endl;
                         // for (int i = 0; i < TIGER_NUMSTATES; ++i)
                         // {
                         //         for (int j = 0; j < TIGER_NUMACTIONS; ++j)
                         //         {
                         //                 for (int k = 0; k < TIGER_NUMOBS; ++k)
                         //                 {
-                        //                         //outFile << plan.opt_z[i][j][k] << " ";
-                        //                         outFile << err[i][j][k] << " ";
+                        //                         //cout << plan.opt_z[i][j][k] << " ";
+                        //                         cout << err[i][j][k] << " ";
                         //                 }
-                        //                 outFile << "|";
+                        //                 cout << "|";
                         //         }
-                        //         outFile << endl;
+                        //         cout << endl;
                         // }
-                        // outFile << iter << endl;
+                        // cout << iter << endl;
                         // t = clock() - t;
-                        // outFile << "printing: " << ((float) t)/CLOCKS_PER_SEC << endl;
+                        // cout << "printing: " << ((float) t)/CLOCKS_PER_SEC << endl;
                 }
                 //print_vector(pomdp.obs);
-                //outFile << "Rewards" << endl;
-                //print_vector(pomdp.rewards);
+                cout << "Rewards" << endl;
+                print_vector(pomdp.rewards);
                 // int last = 0;
                 // for (int i = 0; i < pomdp.actions.size(); ++i)
                 // {
-                //         outFile << pomdp.actions[i] << " " << pomdp.obs[i] << endl;
+                //         cout << pomdp.actions[i] << " " << pomdp.obs[i] << endl;
                 // }
-                print_vector(pomdp.actions);
+                // print_vector(pomdp.actions);
                 // int act = 0;
                 // for (act = 0; act < steps; act++) {
                 //         if (pomdp.actions[act] == 2) {
@@ -664,22 +663,22 @@ int main()
                         rs[i] += pomdp.rewards[i];
                         sum_rewards += pomdp.rewards[i];
                 }
-                // outFile << "Rewards: " << sum_rewards - prev_sum << endl;
-                rewardsFile << sum_rewards - prev_sum << endl;
+                // cout << "Rewards: " << sum_rewards - prev_sum << endl;
+                // rewardsFile << sum_rewards - prev_sum << endl;
                 prev_sum = sum_rewards;
                 // rept = clock() - rept;
-                // outFile << "One Rep: " << ((float) rept)/CLOCKS_PER_SEC << endl;
+                // cout << "One Rep: " << ((float) rept)/CLOCKS_PER_SEC << endl;
         }
-        // ofstream outfile("out.txt");
-        for (size_t i = 0; i < rs.size(); ++i)
-        {
-                rs[i] /= reps;
-                outFile << rs[i] << " ";
-        }
-        outFile << endl;
-        print_vector(rs);
-        // outFile << "Cumulative reward " << sum_rewards/reps << endl;
-        rewardsFile.close();
-        outFile.close();
+        // ofstream cout("out.txt");
+        // for (size_t i = 0; i < rs.size(); ++i)
+        // {
+        //         rs[i] /= reps;
+        //         cout << rs[i] << " ";
+        // }
+        // cout << endl;
+        // print_vector(rs);
+        // cout << "Cumulative reward " << sum_rewards/reps << endl;
+        // rewardsFile.close();
+        // outFile.close();
         return 0;
 }
