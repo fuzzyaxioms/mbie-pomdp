@@ -289,11 +289,11 @@ void em(POMDP &pomdp, double (&o)[TNS][TNA][TNO], double (&best_o)[TNS][TNA][TNO
                 vector<SVec> beta(T+1);
                 vector<SVec> gamma(T+1);
                 double gammasum [TNA];
-                double obsgammasum [TNS][TNO];
+                double obsgammasum [TNA][TNO];
+                double pi [2] = {0.5, 0.5};
                 for (int iters = 0; iters < 10 and max > 0.001; iters++){
                         // This should be initialized outside of the loop, but for some odd reason
                         // its value seems to change after each iteration...so we'll put it here for now.
-                        double pi [2] = {0.5, 0.5};
                         max = 0;
                         for (int i = 0; i < pomdp.numstates; i++){
                                 alpha[0][i] = logmul(log(pi[i]), log(o[i][pomdp.actions[0]][pomdp.obs[0]]));
@@ -377,19 +377,31 @@ void em(POMDP &pomdp, double (&o)[TNS][TNA][TNO], double (&best_o)[TNS][TNA][TNO
                                 // std::fill(gammasum, gammasum + 3, double(log(pomdp.numobs)));
                                 // std::fill(obsgammasum[0], obsgammasum[3] + 2, double(log(1)));
                                 for (int x = 0; x < pomdp.numactions; x++){
-                                        double sum = 0.0;
+                                        // double sum = 0.0;
                                         for (int y = 0; y < pomdp.numobs; y++){
-                                                double rnd = sample_unif();
-                                                sum += rnd;
-                                                obsgammasum[x][y] = log(rnd);
+                                                // double rnd = sample_unif();
+                                                // sum += rnd;
+                                                // obsgammasum[x][y] = log(rnd);
+                                                obsgammasum[x][y] = log(0.0);
+
                                         }
-                                        gammasum[x] = log(sum);
+                                        gammasum[x] = log(0.0);
                                 }
                                 for (int l = 0; l <= T - 1; l++){
                                         gammasum[pomdp.actions[l]] = logadd(gammasum[pomdp.actions[l]], gamma[l][i]);
                                         obsgammasum[pomdp.actions[l]][pomdp.obs[l]] = logadd(obsgammasum[pomdp.actions[l]][pomdp.obs[l]], gamma[l][i]);
                                 }
                                 obsgammasum[pomdp.actions[T]][pomdp.obs[T]] = logadd(obsgammasum[pomdp.actions[T]][pomdp.obs[T]], gamma[T][i]);
+                                for (int x = 0; x < pomdp.numactions; x++){
+                                        double sum = 0.0;
+                                        for (int y = 0; y < pomdp.numobs; y++){
+                                                if (obsgammasum[x][y] == log(0.0)){
+                                                        obsgammasum[x][y] = log(1.0);
+                                                        sum += 1.0;      
+                                                }
+                                        }
+                                        gammasum[x] = logadd(gammasum[x], log(sum));
+                                }
                                 for (int a = 0; a < pomdp.numactions; a++){
                                         if (a == pomdp.actions[T]) {
                                                 gammasum[a] = logadd(gammasum[a], gamma[T][i]);
@@ -462,8 +474,8 @@ int main()
         cout << "hello all" << endl;
 
         int B = 10;
-        int reps = 10;
-        int steps = 1000;
+        int reps = 100;
+        int steps = 20000;
         double sum_rewards = 0;
         int listen_time = 2;
         int sim_steps = 0;
@@ -486,8 +498,8 @@ int main()
                 }
         }
 
-        // ofstream rewardsFile;
-        // rewardsFile.open(FILENAME, ios::out | ios::app);
+        ofstream rewardsFile;
+        rewardsFile.open(FILENAME, ios::out | ios::app);
         
         for (int rep = 0; rep < reps; ++rep)
         {
@@ -643,8 +655,8 @@ int main()
                         // cout << "printing: " << ((float) t)/CLOCKS_PER_SEC << endl;
                 }
                 //print_vector(pomdp.obs);
-                cout << "Rewards" << endl;
-                print_vector(pomdp.rewards);
+                // cout << "Rewards" << endl;
+                // print_vector(pomdp.rewards);
                 // int last = 0;
                 // for (int i = 0; i < pomdp.actions.size(); ++i)
                 // {
@@ -664,7 +676,7 @@ int main()
                         sum_rewards += pomdp.rewards[i];
                 }
                 // cout << "Rewards: " << sum_rewards - prev_sum << endl;
-                // rewardsFile << sum_rewards - prev_sum << endl;
+                rewardsFile << sum_rewards - prev_sum << endl;
                 prev_sum = sum_rewards;
                 // rept = clock() - rept;
                 // cout << "One Rep: " << ((float) rept)/CLOCKS_PER_SEC << endl;
@@ -677,8 +689,8 @@ int main()
         // }
         // cout << endl;
         // print_vector(rs);
-        // cout << "Cumulative reward " << sum_rewards/reps << endl;
-        // rewardsFile.close();
+        cout << "Cumulative reward " << sum_rewards/reps << endl;
+        rewardsFile.close();
         // outFile.close();
         return 0;
 }
