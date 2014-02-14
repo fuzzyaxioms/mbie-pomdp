@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cstdlib>
 
-#define TIGER_NUMACTIONS 3
+#define TIGER_NUMACTIONS 4
 #define TIGER_NUMSTATES 2
 #define TIGER_NUMOBS 2
 
@@ -125,7 +125,7 @@ struct Planning
 		//}
 		
 		// use a grid of belief points
-		const int num_beliefs = 20;
+		const int num_beliefs = 100;
 		for (int i = 0; i <= num_beliefs; ++i)
 		{
 			vector<double> tmp_b(pomdp.numstates, 0.0);
@@ -193,6 +193,7 @@ struct Planning
 		// at the same time, find the best new alpha vector and value for the current belief
 		double curr_v = -numeric_limits<double>::infinity();
 		int best_action = -1;
+		vector<int> best_actions(0, 0);
 		
 		// used to hold a new alpha vector
 		vector<double> tmp_values(pomdp.numstates, 0.0);
@@ -207,7 +208,6 @@ struct Planning
 				next_combination(combo, alphas.size());
 				// calculate the value of this new alpha vector
 				policy_eval(i, combo, tmp_values, tm, tw, zm, zw);
-				
 				// now update the best alpha vector for all beliefs
 				for (int j = 0; j < beliefs.size(); ++j)
 				{
@@ -224,9 +224,15 @@ struct Planning
 				if (tmp_v > curr_v)
 				{
 					curr_v = tmp_v;
-					best_action = i;
+					best_actions.clear();
+					best_actions.push_back(i);
 					// update the optimistic instantiation of the model
 					transfer_opt();
+				}
+				else if (tmp_v == curr_v) {
+					if (find(best_actions.begin(), best_actions.end(), i) == best_actions.end()) {
+						best_actions.push_back(i);
+					}
 				}
 				// only when the last possible combination has been tried, stop
 				//print_vector(combo);
@@ -246,6 +252,7 @@ struct Planning
 			}
 		}
 		alphas.swap(new_alphas);
+        best_action = best_actions[int(floor(sample_unif()*best_actions.size()))];
 		return best_action;
 	}
 	
@@ -268,8 +275,8 @@ struct Planning
 			{
 				z[i][action][j] = max(zm[i][action][j] - zw[i][action][j], 0.0);
 			}
-			//cout << "Lower bounds for action = " << action << " and s' = " << i << endl;
-			//print_array(z[i][action], pomdp.numobs);
+			// << "Lower bounds for action = " << action << " and s' = " << i << endl;
+			// print_array(z[i][action], pomdp.numobs);
 			// get the alpha_z(s')s over z
 			vector<double> zs(pomdp.numobs, 0);
 			for (int j = 0; j < pomdp.numobs; ++j)
