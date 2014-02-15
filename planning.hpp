@@ -20,6 +20,10 @@
 #define TIGER_NUMOBS 2
 #endif
 
+#ifndef NUM_BELIEFS
+#define NUM_BELIEFS 20
+#endif
+
 using namespace std;
 
 template<class T>
@@ -107,6 +111,7 @@ struct Planning
     
     M &pomdp;
     
+    // temporary variables for calculations
     double t[TIGER_NUMSTATES][TIGER_NUMACTIONS][TIGER_NUMSTATES];
     double z[TIGER_NUMSTATES][TIGER_NUMACTIONS][TIGER_NUMOBS];
     
@@ -118,7 +123,7 @@ struct Planning
     : pomdp(pomdp_)
     {
         //double init_alpha_val = pomdp.rmax/(1.0-pomdp.gamma);
-        double init_alpha_val = 0;
+        //double init_alpha_val = 0;
         // initialize a set of beliefs and alpha vectors
         // probably the alpha vectors will need to be initialized optimistically
         // initialize a uniform belief and optimistic alpha
@@ -132,19 +137,8 @@ struct Planning
             //alphas[i].values = vector<double>(pomdp.numstates, init_alpha_val);
         //}
         
-        // use a grid of belief points
-        const int num_beliefs = 100;
-        for (int i = 0; i <= num_beliefs; ++i)
-        {
-            vector<double> tmp_b(pomdp.numstates, 0.0);
-            tmp_b[0] = static_cast<double>(i) / num_beliefs;
-            tmp_b[1] = 1.0-tmp_b[0];
-            beliefs.push_back(tmp_b);
-            alphas.push_back(AVector());
-            int ix = i;
-            alphas[ix].action = rand() % pomdp.numactions;
-            alphas[ix].values = vector<double>(pomdp.numstates, init_alpha_val);
-        }
+        // initialize belief points
+        reset_belief_points();
         
         // current belief is uniform
         reset_curr_belief();
@@ -153,6 +147,26 @@ struct Planning
     void reset_curr_belief()
     {
         curr_belief = vector<double>(pomdp.numstates, 1.0/pomdp.numstates);
+    }
+    
+    void reset_belief_points()
+    {
+        // use a grid of belief points
+        // so far this only works for pomdps with two states
+        assert(pomdp.numstates == 2);
+        beliefs.clear();
+        alphas.clear();
+        for (int i = 0; i <= NUM_BELIEFS; ++i)
+        {
+            vector<double> tmp_b(pomdp.numstates, 0.0);
+            tmp_b[0] = static_cast<double>(i) / NUM_BELIEFS;
+            tmp_b[1] = 1.0-tmp_b[0];
+            beliefs.push_back(tmp_b);
+            alphas.push_back(AVector());
+            int ix = i;
+            alphas[ix].action = rand() % pomdp.numactions;
+            alphas[ix].values = vector<double>(pomdp.numstates, 0);
+        }
     }
     
     // given a new vector of the same size as the beliefs, put the new belief out in there
@@ -239,7 +253,8 @@ struct Planning
     // this needs to iterate through all possible new alpha vectors
     // finds the best new alpha for all belief points
     // also finds best action for current belief, and the associated optimistic instantiation
-    int backup_plan(T const &tm, T const &tw, Z const &zm, Z const &zw)
+    // so need to assume we have already updated beliefs
+    int backup_plan_step(T const &tm, T const &tw, Z const &zm, Z const &zw, bool update_opt=false)
     {
         // keep track of the best values for each belief point
         vector<double> vs(beliefs.size(), -numeric_limits<double>::infinity());
@@ -283,7 +298,10 @@ struct Planning
                     best_actions.clear();
                     best_actions.push_back(i);
                     // update the optimistic instantiation of the model
-                    transfer_opt();
+                    if (update_opt)
+                    {
+                        transfer_opt();
+                    }
                 }
                 else if (tmp_v == curr_v) {
                     if (find(best_actions.begin(), best_actions.end(), i) == best_actions.end()) {
@@ -310,6 +328,23 @@ struct Planning
         alphas.swap(new_alphas);
         best_action = best_actions[int(floor(sample_unif()*best_actions.size()))];
         return best_action;
+    }
+    
+    // optimistic belief point backup, and planning
+    // returns the best action to do
+    // does the backup step many times
+    int backup_plan(T const &tm, T const &tw, Z const &zm, Z const &zw, bool reset=false, int iters=1)
+    {
+        if (reset)
+        {
+            reset_belief_points();
+        }
+        
+        for (int i = 0; i < iters-1; ++i)
+        {
+            backup_plan_step(tm, tw, zm, zw);
+        }
+        return backup_plan_step(tm, tw,zm,zw,true);
     }
     
     // optimistic one-step policy evaluation
