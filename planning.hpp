@@ -179,13 +179,15 @@ struct Planning
         assert(b_sum >= 0.0);
         if (b_sum != 0.0)
         {
+            // nonzero so just normalize
             factor = 1.0/b_sum;
             smoothing = 0.0;
         }
         else
         {
-            factor = 1.0;
-            smoothing = 1.0;
+            // zero, so reset to uniform
+            factor = 0.0;
+            smoothing = 1.0/src_belief.size();
         }
         for (int i = 0; i < src_belief.size(); ++i)
         {
