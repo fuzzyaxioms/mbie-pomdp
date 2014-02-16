@@ -559,10 +559,10 @@ int main()
             int next_action = -1;
             // t = clock();
             if (OPT) {
-                next_action = plan.backup_plan(tr, err, pomdp.o, zeros, true, 30);
+                next_action = plan.backup_plan(tr, err, pomdp.o, zeros, true, 50);
             }
             else {
-                next_action = plan.backup_plan(tr, zeros, pomdp.o, zeros, true, 30);
+                next_action = plan.backup_plan(tr, zeros, pomdp.o, zeros, true, 50);
             }
             assert (next_action >= 0);
             t = clock() - t;
@@ -580,7 +580,7 @@ int main()
             plan.belief_update_full();
              t = clock() - t;
             // cout << "Belief Update: " << ((float) t)/CLOCKS_PER_SEC << endl;
-            plan.print_points();
+            //plan.print_points();
             //cout << "o" << endl;
             //for (int i = 0; i < TIGER_NUMSTATES; ++i)
             //{
@@ -727,7 +727,7 @@ int main()
         // cout << "One Rep: " << ((float) rept)/CLOCKS_PER_SEC << endl;
         
         // show some stats on the run
-        if (0)
+        if (1)
         {
             cout << "rewards" << endl;
             for (size_t i = 0; i < pomdp.rewards.size(); ++i)
