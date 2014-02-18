@@ -8,11 +8,35 @@
 #define TIGER_NUMSTATES 2
 #define TIGER_NUMOBS 2
 
-#define NUM_BELIEFS 50
+#define NUM_BELIEFS 100
 
 #include "planning.hpp"
 
 using namespace std;
+
+#define TNS TIGER_NUMSTATES
+#define TNA TIGER_NUMACTIONS
+#define TNO TIGER_NUMOBS
+
+//#define TIGER_REWARD 10
+//#define TIGER_PENALTY (-100)
+
+#define USE_REWARDS true
+
+#define SMALL_REWARD 1
+#define BIG_REWARD 10
+#define SUCCESS_PROB 0.05
+#define OBS_SUCCESS 0.8
+
+#define START_STATE (0)
+//#define START_STATE (rand() % pomdp.numstates)
+
+#define OPT true
+#define FILENAME "2sensor_opt_rewards_100alpha.txt"
+
+// ofstream outFile;
+clock_t t;
+clock_t rept;
 
 double logmul (double a, double b) {
     return a + b;
@@ -30,29 +54,20 @@ double logadd (double a, double b) {
     }
 }
 
-#define TNS TIGER_NUMSTATES
-#define TNA TIGER_NUMACTIONS
-#define TNO TIGER_NUMOBS
 
-//#define TIGER_REWARD 10
-//#define TIGER_PENALTY (-100)
-
-#define USE_REWARDS true
-
-#define SMALL_REWARD 1
-#define BIG_REWARD 2
-#define SUCCESS_PROB 0.1
-#define OBS_SUCCESS 0.8
-
-#define START_STATE (0)
-//#define START_STATE (rand() % pomdp.numstates)
-
-#define OPT true
-#define FILENAME "2sensor_opt_rewards_100alpha.txt"
-
-// ofstream outFile;
-clock_t t;
-clock_t rept;
+void print_t(double const (&tr)[TNS][TNA][TNS])
+{
+    for (int x = 0; x < TNS; ++x)
+    {
+        for (int y = 0; y < TNA; ++y)
+        {
+            for (int z = 0; z < TNS; ++z)
+            {
+                cout << x << "," << y << "," << z << " | " << tr[x][y][z] << endl;
+            }
+        }
+    }
+}
 
 // two states, left and right
 // two actions, left and right
@@ -227,7 +242,7 @@ void initialize(POMDP &pomdp, double (&tr)[TNS][TNA][TNS])
             for (int k = 0; k < pomdp.numstates; ++k)
             {
                 double p = sample_unif();
-                //double p = 0.5;
+                //double p = 1.0;
                 tr[i][j][k] = p;
                 total += p;
             }
@@ -264,7 +279,7 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&best_tr)[TNS][TNA][T
     // pomdp.actions[t] is the previous action
     
     double pi [2] = {0.5, 0.5};
-    for (int iters = 0; iters < 5 and max > 0.001; iters++) {
+    for (int iters = 0; iters < 10 and max > 0.001; iters++) {
         // This should be initialized outside of the loop, but for some odd reason
         // its value seems to change after each iteration...so we'll put it here for now.
         max = 1;
@@ -382,7 +397,7 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&best_tr)[TNS][TNA][T
                 {
                     // numerator of the expression
                     // instead of calling logmul I just use +
-                    double top = alpha[l][x] + tr[x][cact][z] + pomdp.o[z][cact][pomdp.obs[l+1]] + beta[l+1][z];
+                    double top = alpha[l][x] + log(tr[x][cact][z]) + log(pomdp.o[z][cact][pomdp.obs[l+1]]) + beta[l+1][z];
                     sum = logadd(sum, top);
                     temp_vals[x][z] = top;
                 }
@@ -462,16 +477,7 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&best_tr)[TNS][TNA][T
         if (0)
         {
             cout << "estimated transitions" << endl;
-            for (int x = 0; x < pomdp.numstates; ++x)
-            {
-                for (int y = 0; y < pomdp.numactions; ++y)
-                {
-                    for (int z = 0; z < pomdp.numstates; ++z)
-                    {
-                        cout << x << "," << y << "," << z << " | " << tr[x][y][z] << endl;
-                    }
-                }
-            }
+            print_t(tr);
         }
     }
     for (int x = 0; x < pomdp.numstates; x++) {
@@ -512,14 +518,190 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&best_tr)[TNS][TNA][T
     // }
 }
 
-int main()
+// find a good number for the number of belief points and times to iterate
+// looks like 30 iterations is good enough to find the optimal policy with a big gap
+// but to be safe let's go with 40 since that works with worse sensors as well
+// rewards are 1 and 3, and obs success is 0.8 and success prob is 0.05
+
+// but for some reason once I go to 100 belief points, it can't find
+// the optimal policy with estimated transitions and big confidence intervals
+// the reason is that the agent is having a hard time finding out that it's good
+// to stay in the right state, em keeps estimating that going right in the right state
+// gets you back to the left state, and the ci is too small to allow the optimism
+// to swing it the other way. With the way things are set up, if you estimate
+// that it's 0.5 to stay in the right state when taking the right action, the agent
+// is better off not trying to get to the right state. To fix this, I increase
+// the size of the confidence intervals, and increase big reward slightly so that
+// there is wiggle room for the agent to be optimistic enough to want to try to
+// go to the right state.
+void find_planning_params()
+{
+    //srand(0);
+    srand(time(0));
+    POMDP pomdp;
+    Planning<POMDP,double[TNS][TNA][TNS],double[TNS][TNA][TNO]> plan(pomdp);
+    
+    double o_zeros[TNS][TNA][TNO];
+    double err[TNS][TNA][TNS];
+    double tr[TNS][TNA][TNS];
+    for (int x = 0; x < TNS; x++) {
+        for (int y = 0; y < TNA; y++) {
+            for (int z = 0; z < TNO; z++) {
+                o_zeros[x][y][z] = 0;
+            }
+            for (int z = 0; z < TNS; z++) {
+                tr[x][y][z] = 0;
+                err[x][y][z] = 0;
+            }
+        }
+    }
+    
+    // let's make a purposefully bad transition matrix but with
+    tr[0][0][0] = 1.0; // stay in the same state
+    tr[0][0][1] = 0.0;
+    
+    tr[0][1][0] = 1.0; // hard to go right
+    tr[0][1][1] = 0.0;
+    
+    err[0][1][0] = 0.05; // a small chance to include correct probs
+    err[0][1][1] = 0.05;
+    
+    tr[1][0][0] = 1.0; // easily go back to left
+    tr[1][0][1] = 0.0;
+    
+    tr[1][1][0] = 1.0; // stay right
+    tr[1][1][1] = 0.0;
+    
+    err[1][1][0] = 0.5; // wrong estimate possible
+    err[1][1][1] = 0.5;
+    
+    int next_action = plan.backup_plan(tr, err, pomdp.o, o_zeros, true, 40);
+    
+    print_t(plan.opt_t);
+    
+    assert (next_action >= 0);
+    plan.print_points();
+}
+
+// testing the correctness of em
+// seems to work now
+
+// need to be careful when estimating something to have probability 0 or 1
+// because that might get rid of all variance when running bootstrap
+void test_em()
+{
+    srand(0);
+    //srand(time(0));
+
+    int B = 100;
+    int steps = 12;
+
+    double tr[TNS][TNA][TNS];
+    double err[TNS][TNA][TNS];
+    for (int x = 0; x < TNS; x++) {
+        for (int y = 0; y < TNA; y++) {
+            for (int z = 0; z < TNS; z++) {
+                tr[x][y][z] = 0;
+                err[x][y][z] = 0;
+            }
+        }
+    }
+    
+    POMDP pomdp;
+    initialize(pomdp, tr);
+    
+    // cout << "---------- Iteration " << iter+1 << " ----------" << endl;
+    // advance the pomdp
+    for (int i = 0; i < steps; ++i)
+    {
+        int next_action = sample_unif() > 0.8;
+        assert (next_action >= 0);
+        pomdp.step(next_action);
+    }
+    // show some stats on the run
+    cout << "states" << endl;
+    for (size_t i = 0; i < pomdp.rewards.size(); ++i)
+    {
+        cout << pomdp.states[i] << " ";
+    }
+    cout << endl;
+    cout << "actions" << endl;
+    for (size_t i = 0; i < pomdp.actions.size(); ++i)
+    {
+        cout << pomdp.actions[i] << " ";
+    }
+    cout << endl;
+    cout << "rewards" << endl;
+    for (size_t i = 0; i < pomdp.rewards.size(); ++i)
+    {
+        cout << pomdp.rewards[i] << " ";
+    }
+    cout << endl;
+    
+    initialize(pomdp, tr);
+    em(pomdp, tr, tr);
+    
+    cout << "esimated transitions" << endl;
+    print_t(tr);
+    
+    // bootstrap
+    if (B > 0) {
+        //cout << pomdp.obs.size() << endl;
+        double boot_tr[B][pomdp.numstates][pomdp.numactions][pomdp.numstates];
+        for (int b = 0; b < B; b++) {
+            POMDP learnedpomdp;
+            learnedpomdp.set_tr(tr);
+            //learnedpomdp.set_t(t);
+            for (size_t i = 0; i < pomdp.obs.size(); ++i) {
+                learnedpomdp.step(pomdp.actions[i]);
+                //learnedpomdp.step(rand() % pomdp.numactions);
+            }
+            double new_tr[TNS][TNA][TNS];
+            initialize(pomdp, new_tr);
+            em(learnedpomdp, new_tr, new_tr);
+            for (int i = 0; i < pomdp.numstates; i++) {
+                for (int j = 0; j < pomdp.numactions; j++) {
+                    for (int k = 0; k < pomdp.numstates; k++) {
+                        boot_tr[b][i][j][k] = new_tr[i][j][k];
+                    }
+                }
+            }
+        }
+        double sum[pomdp.numstates][pomdp.numactions][pomdp.numstates];
+        for (int i = 0; i < pomdp.numstates; i++) {
+            for (int j = 0; j < pomdp.numactions; j++) {
+                for (int k = 0; k < pomdp.numstates; k++) {
+                    sum[i][j][k] = 0;
+                    err[i][j][k] = 0;
+                    for (int b = 0; b < B; b++) {
+                        sum[i][j][k] += boot_tr[b][i][j][k];
+                    }
+                    for (int b = 0; b < B; b++) {
+                        err[i][j][k] += pow(boot_tr[b][i][j][k] - sum[i][j][k]/B, 2);
+                    }
+                    err[i][j][k] = 1.0 * sqrt(err[i][j][k]/B);
+                    if (err[i][j][k] == 0 and abs(tr[i][j][k] - 1.0/pomdp.numstates) < 0.001)
+                    {
+                        err[i][j][k] = 1;
+                    }
+                    //err[i][j][k] = 1.0/sqrt(iter);
+                    //err[i][j][k] = 1.0/iter;
+                }
+            }
+        }
+    }
+    cout << "esimated transitions ci" << endl;
+    print_t(err);
+}
+
+void test_opt()
 {
     srand(0);
     //srand(time(0));
     // outFile.open("outstream_100alpha.txt", ios::out | ios::app);
     cout << "hello all" << endl;
 
-    int B = 10;
+    int B = 100;
     int reps = 1;
     int steps = 100;
     double sum_rewards = 0;
@@ -537,7 +719,7 @@ int main()
             }
             for (int z = 0; z < TNS; z++) {
                 tr[x][y][z] = 0;
-                err[x][y][z] = 0;
+                err[x][y][z] = 1;
             }
         }
     }
@@ -547,28 +729,39 @@ int main()
 
     for (int rep = 0; rep < reps; ++rep)
     {
-        // rept = clock();
+        rept = clock();
         // cout << rep << endl;
         POMDP pomdp;
         initialize(pomdp, tr);
         Planning<POMDP,double[TNS][TNA][TNS],double[TNS][TNA][TNO]> plan(pomdp);
         for (int iter = 0; iter < steps; iter++) {
-            // cout << "---------- Iteration " << iter+1 << " ----------" << endl;
+             //cout << "---------- Iteration " << iter+1 << " ----------" << endl;
             //cout << "Curr Belief -- ";
             //print_vector(plan.curr_belief);
             int next_action = -1;
             // t = clock();
             if (OPT) {
-                next_action = plan.backup_plan(tr, err, pomdp.o, zeros, true, 50);
+                next_action = plan.backup_plan(tr, err, pomdp.o, zeros, true, 40);
             }
             else {
-                next_action = plan.backup_plan(tr, zeros, pomdp.o, zeros, true, 50);
+                next_action = plan.backup_plan(tr, zeros, pomdp.o, zeros, true, 40);
             }
             assert (next_action >= 0);
             t = clock() - t;
              //cout << "Step: " << ((float) t)/CLOCKS_PER_SEC << endl;
              //cout << "next action: " << next_action << endl;
-
+            
+            // debug information
+            if (0)
+            {
+                cout << "estimated transitions" << endl;
+                print_t(tr);
+                cout << "optimistic transitions" << endl;
+                print_t(plan.opt_t);
+                cout << "estimated cis" << endl;
+                print_t(err);
+            }
+            
             // advance the pomdp
             //pomdp.step(0);
             pomdp.step(next_action);
@@ -576,9 +769,9 @@ int main()
             //cout << "Curr Belief -- ";
             //print_vector(plan.curr_belief);
             // update beliefs
-             t = clock();
+             //t = clock();
             plan.belief_update_full();
-             t = clock() - t;
+             //t = clock() - t;
             // cout << "Belief Update: " << ((float) t)/CLOCKS_PER_SEC << endl;
             //plan.print_points();
             //cout << "o" << endl;
@@ -609,16 +802,9 @@ int main()
                     }
                 }
             }
-            //cout << "err" << endl;
-            //for (int x = 0; x < pomdp.numstates; x++) {
-                //for (int y = 0; y < pomdp.numactions; y++) {
-                    //for (int z = 0; z < pomdp.numstates; z++) {
-                        //cout << x << "," << y << "," << z << " | " << err[x][y][z] << endl;
-                    //}
-                //}
-            //}
+            
             // t = clock();
-            if (OPT) {
+            if (OPT and B>0) {
                 //cout << pomdp.obs.size() << endl;
                 double boot_tr[B][pomdp.numstates][pomdp.numactions][pomdp.numstates];
                 for (int b = 0; b < B; b++) {
@@ -652,10 +838,10 @@ int main()
                             for (int b = 0; b < B; b++) {
                                 err[i][j][k] += pow(boot_tr[b][i][j][k] - sum[i][j][k]/B, 2);
                             }
-                            err[i][j][k] = 1.0 * sqrt(err[i][j][k]/B);
-                            if (err[i][j][k] == 0)
+                            err[i][j][k] = 1.96 * sqrt(err[i][j][k]/B);
+                            if (err[i][j][k] == 0 and abs(tr[i][j][k] - 1.0/pomdp.numstates) < 0.001)
                             {
-                                err[i][j][k] = 1;
+                                err[i][j][k] = 1.0;
                             }
                             //err[i][j][k] = 1.0/sqrt(iter);
                             //err[i][j][k] = 1.0/iter;
@@ -665,55 +851,7 @@ int main()
             }
             // t = clock() - t;
             // cout << "Bootstrap: " << ((float) t)/CLOCKS_PER_SEC << endl;
-
-            // t = clock();
-            // cout << "o" << endl;
-            // for (int i = 0; i < TIGER_NUMSTATES; ++i)
-            // {
-            //         for (int j = 0; j < TIGER_NUMACTIONS; ++j)
-            //         {
-            //                 for (int k = 0; k < TIGER_NUMOBS; ++k)
-            //                 {
-            //                         //cout << plan.opt_z[i][j][k] << " ";
-            //                         cout << o[i][j][k] << " ";
-            //                 }
-            //                 cout << "|";
-            //         }
-            //         cout << endl;
-            // }
-            // cout << "ci" << endl;
-            // for (int i = 0; i < TIGER_NUMSTATES; ++i)
-            // {
-            //         for (int j = 0; j < TIGER_NUMACTIONS; ++j)
-            //         {
-            //                 for (int k = 0; k < TIGER_NUMOBS; ++k)
-            //                 {
-            //                         //cout << plan.opt_z[i][j][k] << " ";
-            //                         cout << err[i][j][k] << " ";
-            //                 }
-            //                 cout << "|";
-            //         }
-            //         cout << endl;
-            // }
-            // cout << iter << endl;
-            // t = clock() - t;
-            // cout << "printing: " << ((float) t)/CLOCKS_PER_SEC << endl;
         }
-        //print_vector(pomdp.obs);
-        // cout << "Rewards" << endl;
-        // print_vector(pomdp.rewards);
-        // int last = 0;
-        // for (int i = 0; i < pomdp.actions.size(); ++i)
-        // {
-        //         cout << pomdp.actions[i] << " " << pomdp.obs[i] << endl;
-        // }
-        // print_vector(pomdp.actions);
-        // int act = 0;
-        // for (act = 0; act < steps; act++) {
-        //         if (pomdp.actions[act] == 2) {
-        //                 last = act;
-        //         }
-        // }
 
         for (size_t i = 0; i < pomdp.rewards.size(); ++i)
         {
@@ -723,22 +861,28 @@ int main()
         // cout << "Rewards: " << sum_rewards - prev_sum << endl;
         rewardsFile << sum_rewards - prev_sum << endl;
         prev_sum = sum_rewards;
-        // rept = clock() - rept;
-        // cout << "One Rep: " << ((float) rept)/CLOCKS_PER_SEC << endl;
+         rept = clock() - rept;
+         cout << "One Rep: " << ((float) rept)/CLOCKS_PER_SEC << endl;
         
         // show some stats on the run
-        if (1)
+        if (0)
         {
-            cout << "rewards" << endl;
+            cout << "states" << endl;
             for (size_t i = 0; i < pomdp.rewards.size(); ++i)
             {
-                cout << pomdp.rewards[i] << " ";
+                cout << pomdp.states[i] << " ";
             }
             cout << endl;
             cout << "actions" << endl;
             for (size_t i = 0; i < pomdp.actions.size(); ++i)
             {
                 cout << pomdp.actions[i] << " ";
+            }
+            cout << endl;
+            cout << "rewards" << endl;
+            for (size_t i = 0; i < pomdp.rewards.size(); ++i)
+            {
+                cout << pomdp.rewards[i] << " ";
             }
             cout << endl;
         }
@@ -754,5 +898,15 @@ int main()
     cout << "Cumulative reward " << sum_rewards/reps << endl;
     rewardsFile.close();
     // outFile.close();
+}
+
+int main ()
+{
+    //find_planning_params();
+    
+    //test_em();
+    
+    test_opt();
+    
     return 0;
 }
