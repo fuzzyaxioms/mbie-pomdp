@@ -24,15 +24,12 @@ using namespace std;
 #define USE_REWARDS true
 
 #define SMALL_REWARD 1
-#define BIG_REWARD 10
+#define BIG_REWARD 2
 #define SUCCESS_PROB 0.05
 #define OBS_SUCCESS 0.8
 
 #define START_STATE (0)
 //#define START_STATE (rand() % pomdp.numstates)
-
-#define OPT true
-#define FILENAME "2sensor_opt_rewards_100alpha.txt"
 
 // ofstream outFile;
 clock_t t;
@@ -241,7 +238,8 @@ void initialize(POMDP &pomdp, double (&tr)[TNS][TNA][TNS])
             double total = 0;
             for (int k = 0; k < pomdp.numstates; ++k)
             {
-                double p = sample_unif();
+                //double p = sample_unif();
+                double p = sample_gamma();
                 //double p = 1.0;
                 tr[i][j][k] = p;
                 total += p;
@@ -265,10 +263,16 @@ struct SVec
 };
 
 // given an initialization, output the learned obs
-void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&best_tr)[TNS][TNA][TNS])
+// also output log likelihood
+// also give confidence intervals that come from the expected counts
+double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&best_tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS])
 {
     double max = 1;
-    const int T = pomdp.obs.size() - 1;
+    const int T = pomdp.obs.size() - 2;
+    if (T < 0)
+    {
+        return log(1.0);
+    }
     vector<SVec> alpha(T+1);
     vector<SVec> beta(T+1);
     vector<SVec> gamma(T+1);
@@ -422,10 +426,16 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&best_tr)[TNS][TNA][T
         }
         
         // now it's easy to compute the estimated probs using the sum variables above
+        // can also get the fake confidence intervals from the expected counts
         for (int x = 0; x < pomdp.numstates; ++x)
         {
             for (int y = 0; y < pomdp.numactions; ++y)
             {
+                // compute the confidence intervals
+                double const confidence_alpha = 0.05;
+                double fake_count = exp(gamma_action_sum[x][y]);
+                double ci_radius = fake_count > 0.0 ? sqrt((0.5/fake_count)*log (2.0/confidence_alpha)) : 1.0;
+                
                 // for normalization fixing stuff up
                 double sum = 0.0;
                 for (int z = 0; z < pomdp.numstates; ++z)
@@ -440,6 +450,7 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&best_tr)[TNS][TNA][T
                         tr[x][y][z] = exp(epsilon_sum[x][y][z] - gamma_action_sum[x][y]);
                     }
                     sum += tr[x][y][z];
+                    err[x][y][z] = ci_radius;
                 }
                 // normalize to fix stuff up
                 // not sure why this isn't already normalized - they should be
@@ -488,6 +499,13 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&best_tr)[TNS][TNA][T
         }
     }
     
+    // calculate log likelihood from alpha
+    double loglikelihood = log(0.0);
+    for (int x = 0; x < pomdp.numstates; ++x)
+    {
+        loglikelihood = logadd(alpha[T][x],loglikelihood);
+    }
+    
     // for debugging
     if (0)
     {
@@ -508,15 +526,10 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&best_tr)[TNS][TNA][T
             cout << endl;
         }
     }
-    // for (int x = 0; x < pomdp.numstates; x++){
-    //         for (int y = 0; y < pomdp.numactions; y++){
-    //                 for (int z = 0; z < pomdp.numobs; z++){
-    //                         learned_o[x][y][z] = best_o[x][y][z];
-    //                         cout << learned_o[x][y][z] << endl;
-    //                 }
-    //         }
-    // }
+    return loglikelihood;
 }
+
+
 
 // find a good number for the number of belief points and times to iterate
 // looks like 30 iterations is good enough to find the optimal policy with a big gap
@@ -593,8 +606,8 @@ void test_em()
     srand(0);
     //srand(time(0));
 
-    int B = 100;
-    int steps = 12;
+    int B = 0;
+    int steps = 20;
 
     double tr[TNS][TNA][TNS];
     double err[TNS][TNA][TNS];
@@ -608,13 +621,12 @@ void test_em()
     }
     
     POMDP pomdp;
-    initialize(pomdp, tr);
     
     // cout << "---------- Iteration " << iter+1 << " ----------" << endl;
     // advance the pomdp
     for (int i = 0; i < steps; ++i)
     {
-        int next_action = sample_unif() > 0.8;
+        int next_action = sample_unif() > 0.2;
         assert (next_action >= 0);
         pomdp.step(next_action);
     }
@@ -638,8 +650,26 @@ void test_em()
     }
     cout << endl;
     
+    srand(time(0));
     initialize(pomdp, tr);
-    em(pomdp, tr, tr);
+    double loglikelihood = em(pomdp, tr, tr, err);
+    cout << "ll = " << loglikelihood << endl;
+    
+    if (0)
+    {
+        // let's make a purposefully bad transition matrix
+        tr[0][0][0] = 1.0; // stay in the same state
+        tr[0][0][1] = 0.0;
+        
+        tr[0][1][0] = 1.0; // hard to go right
+        tr[0][1][1] = 0.0;
+        
+        tr[1][0][0] = 1.0; // easily go back to left
+        tr[1][0][1] = 0.0;
+        
+        tr[1][1][0] = 1.0; // stay right
+        tr[1][1][1] = 0.0;
+    }
     
     cout << "esimated transitions" << endl;
     print_t(tr);
@@ -657,8 +687,8 @@ void test_em()
                 //learnedpomdp.step(rand() % pomdp.numactions);
             }
             double new_tr[TNS][TNA][TNS];
-            initialize(pomdp, new_tr);
-            em(learnedpomdp, new_tr, new_tr);
+            initialize(learnedpomdp, new_tr);
+            em(learnedpomdp, new_tr, new_tr, err);
             for (int i = 0; i < pomdp.numstates; i++) {
                 for (int j = 0; j < pomdp.numactions; j++) {
                     for (int k = 0; k < pomdp.numstates; k++) {
@@ -679,7 +709,7 @@ void test_em()
                     for (int b = 0; b < B; b++) {
                         err[i][j][k] += pow(boot_tr[b][i][j][k] - sum[i][j][k]/B, 2);
                     }
-                    err[i][j][k] = 1.0 * sqrt(err[i][j][k]/B);
+                    err[i][j][k] = 1.96 * sqrt(err[i][j][k]/B);
                     if (err[i][j][k] == 0 and abs(tr[i][j][k] - 1.0/pomdp.numstates) < 0.001)
                     {
                         err[i][j][k] = 1;
@@ -694,18 +724,17 @@ void test_em()
     print_t(err);
 }
 
-void test_opt()
+void test_opt(bool use_opt, char const *reward_out)
 {
     srand(0);
     //srand(time(0));
     // outFile.open("outstream_100alpha.txt", ios::out | ios::app);
     cout << "hello all" << endl;
 
-    int B = 100;
-    int reps = 1;
-    int steps = 100;
+    int B = 0;
+    int reps = 10;
+    int steps = 200;
     double sum_rewards = 0;
-    int prev_sum = 0;
 
     vector<double> rs(steps, 0.0);
 
@@ -724,9 +753,6 @@ void test_opt()
         }
     }
 
-    ofstream rewardsFile;
-    rewardsFile.open(FILENAME, ios::out | ios::app);
-
     for (int rep = 0; rep < reps; ++rep)
     {
         rept = clock();
@@ -740,7 +766,7 @@ void test_opt()
             //print_vector(plan.curr_belief);
             int next_action = -1;
             // t = clock();
-            if (OPT) {
+            if (use_opt) {
                 next_action = plan.backup_plan(tr, err, pomdp.o, zeros, true, 40);
             }
             else {
@@ -754,6 +780,7 @@ void test_opt()
             // debug information
             if (0)
             {
+                cout << "---------- Iteration " << iter << " ----------" << endl;
                 cout << "estimated transitions" << endl;
                 print_t(tr);
                 cout << "optimistic transitions" << endl;
@@ -790,7 +817,7 @@ void test_opt()
             double res[TNS][TNA][TNS];
             // t = clock();
             initialize(pomdp, res);
-            em(pomdp, res, res);
+            em(pomdp, res, res, err);
             // t = clock() - t;
              //cout << "EM: " << ((float) t)/CLOCKS_PER_SEC << endl;
             for (int x = 0; x < pomdp.numstates; x++) {
@@ -804,7 +831,7 @@ void test_opt()
             }
             
             // t = clock();
-            if (OPT and B>0) {
+            if (use_opt and B>0) {
                 //cout << pomdp.obs.size() << endl;
                 double boot_tr[B][pomdp.numstates][pomdp.numactions][pomdp.numstates];
                 for (int b = 0; b < B; b++) {
@@ -817,7 +844,7 @@ void test_opt()
                     }
                     double new_tr[TNS][TNA][TNS];
                     initialize(pomdp, new_tr);
-                    em(learnedpomdp, new_tr, new_tr);
+                    em(learnedpomdp, new_tr, new_tr,err);
                     for (int i = 0; i < pomdp.numstates; i++) {
                         for (int j = 0; j < pomdp.numactions; j++) {
                             for (int k = 0; k < pomdp.numstates; k++) {
@@ -843,8 +870,6 @@ void test_opt()
                             {
                                 err[i][j][k] = 1.0;
                             }
-                            //err[i][j][k] = 1.0/sqrt(iter);
-                            //err[i][j][k] = 1.0/iter;
                         }
                     }
                 }
@@ -859,10 +884,8 @@ void test_opt()
             sum_rewards += pomdp.rewards[i];
         }
         // cout << "Rewards: " << sum_rewards - prev_sum << endl;
-        rewardsFile << sum_rewards - prev_sum << endl;
-        prev_sum = sum_rewards;
-         rept = clock() - rept;
-         cout << "One Rep: " << ((float) rept)/CLOCKS_PER_SEC << endl;
+        rept = clock() - rept;
+        cout << "One Rep: " << ((float) rept)/CLOCKS_PER_SEC << endl;
         
         // show some stats on the run
         if (0)
@@ -887,17 +910,14 @@ void test_opt()
             cout << endl;
         }
     }
-    // ofstream cout("out.txt");
-    // for (size_t i = 0; i < rs.size(); ++i)
-    // {
-    //         rs[i] /= reps;
-    //         cout << rs[i] << " ";
-    // }
-    // cout << endl;
-    // print_vector(rs);
+    ofstream output_r(reward_out);
+    for (size_t i = 0; i < rs.size(); ++i)
+    {
+        rs[i] /= reps;
+        output_r << rs[i] << endl;
+    }
+    output_r.close();
     cout << "Cumulative reward " << sum_rewards/reps << endl;
-    rewardsFile.close();
-    // outFile.close();
 }
 
 int main ()
@@ -906,7 +926,8 @@ int main ()
     
     //test_em();
     
-    test_opt();
+    //test_opt(true, "optimistic_rewards.txt");
+    test_opt(false, "mean_rewards.txt");
     
     return 0;
 }
