@@ -66,6 +66,20 @@ void print_t(double const (&tr)[TNS][TNA][TNS])
     }
 }
 
+void copy_t(double const (&src_tr)[TNS][TNA][TNS], double (&dst_tr)[TNS][TNA][TNS])
+{
+    for (int x = 0; x < TNS; ++x)
+    {
+        for (int y = 0; y < TNA; ++y)
+        {
+            for (int z = 0; z < TNS; ++z)
+            {
+                dst_tr[x][y][z] = src_tr[x][y][z];
+            }
+        }
+    }
+}
+
 // two states, left and right
 // two actions, left and right
 // going left in left gets some reward
@@ -530,6 +544,27 @@ double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&best_tr)[TNS][TNA]
 }
 
 
+double best_em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&best_tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS])
+{
+    double max_ll = log(0.0);
+    double curr_best_tr[TNS][TNA][TNS];
+    double curr_best_err[TNS][TNA][TNS];
+    for (int i = 0; i < 100; ++i)
+    {
+        initialize(pomdp, tr);
+        double curr_ll = em(pomdp, tr, best_tr, err);
+        if (curr_ll > max_ll)
+        {
+            max_ll = curr_ll;
+            copy_t(best_tr, curr_best_tr);
+            copy_t(err, curr_best_err);
+        }
+    }
+    copy_t(curr_best_tr, best_tr);
+    copy_t(curr_best_err, err);
+    return max_ll;
+}
+
 
 // find a good number for the number of belief points and times to iterate
 // looks like 30 iterations is good enough to find the optimal policy with a big gap
@@ -607,7 +642,7 @@ void test_em()
     //srand(time(0));
 
     int B = 0;
-    int steps = 20;
+    int steps = 50;
 
     double tr[TNS][TNA][TNS];
     double err[TNS][TNA][TNS];
@@ -626,7 +661,7 @@ void test_em()
     // advance the pomdp
     for (int i = 0; i < steps; ++i)
     {
-        int next_action = sample_unif() > 0.2;
+        int next_action = sample_unif() > 0.4;
         assert (next_action >= 0);
         pomdp.step(next_action);
     }
@@ -652,7 +687,8 @@ void test_em()
     
     srand(time(0));
     initialize(pomdp, tr);
-    double loglikelihood = em(pomdp, tr, tr, err);
+    //double loglikelihood = em(pomdp, tr, tr, err);
+    double loglikelihood = best_em(pomdp, tr, tr, err);
     cout << "ll = " << loglikelihood << endl;
     
     if (0)
@@ -818,6 +854,7 @@ void test_opt(bool use_opt, char const *reward_out)
             // t = clock();
             initialize(pomdp, res);
             em(pomdp, res, res, err);
+            //best_em(pomdp, res, res, err);
             // t = clock() - t;
              //cout << "EM: " << ((float) t)/CLOCKS_PER_SEC << endl;
             for (int x = 0; x < pomdp.numstates; x++) {
