@@ -736,8 +736,8 @@ void test_em()
     // advance the pomdp
     for (int i = 0; i < steps; ++i)
     {
-        //int next_action = sample_unif() > 0.4;
-        int next_action = (i / 10) % 2;
+        int next_action = sample_unif() > 0.5;
+        //int next_action = (i / 10) % 2;
         assert (next_action >= 0);
         pomdp.step(next_action);
     }
@@ -787,6 +787,8 @@ void test_em()
     print_t(tr);
     cout << "esimated transitions ci" << endl;
     print_t(err);
+    cout << "estimated rewards" << endl;
+    print_r(est_r);
     cout << "estimated upper bound rewards" << endl;
     print_r(opt_r);
 }
@@ -798,14 +800,13 @@ void test_opt(bool use_opt, char const *reward_out, double decay = -1)
     //int seed = 1393011461;
     //int seed = time(0);
     srand(seed);
-    cout << "seed = " << seed << endl;
     //srand();
     // outFile.open("outstream_100alpha.txt", ios::out | ios::app);
     cout << "hello all" << endl;
 
     //int B = 0;
-    int reps = 1;
-    int steps = 500;
+    int reps = 10;
+    int steps = 1000;
     double sum_rewards = 0;
 
     vector<double> rs(steps, 0.0);
@@ -871,7 +872,7 @@ void test_opt(bool use_opt, char const *reward_out, double decay = -1)
             //print_vector(plan.curr_belief);
             
             // debug information
-            if (1)
+            if (0)
             {
                 cout << "-------------------- Iteration " << iter << " --------------------" << endl;
                 cout << "(s,a,r) = " << pomdp.states.back() << "," << pomdp.actions.back() << "," << pomdp.rewards.back() << endl;
@@ -912,8 +913,8 @@ void test_opt(bool use_opt, char const *reward_out, double decay = -1)
             //double res[TNS][TNA][TNS];
             // t = clock();
             initialize(pomdp, tr);
-            em(pomdp, tr, tr, err, est_r, opt_r);
-            //best_em(pomdp, res, res, err);
+            //em(pomdp, tr, tr, err, est_r, opt_r);
+            best_em(pomdp, tr, tr, err, est_r, opt_r);
             // t = clock() - t;
              //cout << "EM: " << ((float) t)/CLOCKS_PER_SEC << endl;
         }
@@ -970,15 +971,16 @@ void test_opt(bool use_opt, char const *reward_out, double decay = -1)
     }
     
     cout << "Cumulative reward " << sum_rewards/reps << endl;
+    cout << "seed = " << seed << endl;
 }
 
 int main ()
 {
     //find_planning_params();
     
-    //test_em();
+    test_em();
     
-    test_opt(true, "optimistic_rewards.txt");
+    //test_opt(true, "optimistic_rewards.txt");
     
     //int fs[] = {100};
     //for (int f: fs)
