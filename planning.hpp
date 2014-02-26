@@ -99,7 +99,8 @@ struct AVector
 // M - type of the POMDP
 // T - T[][][] transition matrix
 // Z - Z[][][] observation matrix
-template <class M, class T, class Z>
+// R - R[][] expected reward matrix
+template <class M, class T, class Z, class R>
 struct Planning
 {
     // a belief point will simply be a vector<double>
@@ -254,7 +255,7 @@ struct Planning
     // finds the best new alpha for all belief points
     // also finds best action for current belief, and the associated optimistic instantiation
     // so need to assume we have already updated beliefs
-    int backup_plan_step(T const &tm, T const &tw, Z const &zm, Z const &zw, bool update_opt=false)
+    int backup_plan_step(T const &tm, T const &tw, Z const &zm, Z const &zw, R const &er, bool update_opt=false)
     {
         // keep track of the best values for each belief point
         vector<double> vs(beliefs.size(), -numeric_limits<double>::infinity());
@@ -278,7 +279,7 @@ struct Planning
                 // get the next combination
                 next_combination(combo, alphas.size());
                 // calculate the value of this new alpha vector
-                policy_eval(i, combo, tmp_values, tm, tw, zm, zw);
+                policy_eval(i, combo, tmp_values, tm, tw, zm, zw, er);
                 // now update the best alpha vector for all beliefs
                 for (int j = 0; j < beliefs.size(); ++j)
                 {
@@ -327,13 +328,20 @@ struct Planning
         }
         alphas.swap(new_alphas);
         best_action = best_actions[int(floor(sample_unif()*best_actions.size()))];
+        
+        // see what actions are actually there
+        if (0 and update_opt)
+        {
+            print_vector(best_actions);
+        }
+        
         return best_action;
     }
     
     // optimistic belief point backup, and planning
     // returns the best action to do
     // does the backup step many times
-    int backup_plan(T const &tm, T const &tw, Z const &zm, Z const &zw, bool reset=false, int iters=1)
+    int backup_plan(T const &tm, T const &tw, Z const &zm, Z const &zw, R const &er, bool reset=false, int iters=1)
     {
         if (reset)
         {
@@ -342,9 +350,9 @@ struct Planning
         
         for (int i = 0; i < iters-1; ++i)
         {
-            backup_plan_step(tm, tw, zm, zw);
+            backup_plan_step(tm, tw, zm, zw, er);
         }
-        return backup_plan_step(tm, tw,zm,zw,true);
+        return backup_plan_step(tm, tw,zm,zw,er,true);
     }
     
     // optimistic one-step policy evaluation
@@ -352,7 +360,7 @@ struct Planning
     // given the means and widths of the confidence intervals
     // return a new alpha vector's values
     // also fills in an optimistic instantiation of the model
-    void policy_eval(int action, vector<int> const& combo, vector<double> &values, T const &tm, T const &tw, Z const &zm, Z const &zw)
+    void policy_eval(int action, vector<int> const& combo, vector<double> &values, T const &tm, T const &tw, Z const &zm, Z const &zw, R const &er)
     {
         // maximization over observations
         assert(values.size() == pomdp.numstates);
@@ -447,7 +455,7 @@ struct Planning
         // now do the final backup step
         for (int i = 0; i < pomdp.numstates; ++i)
         {
-            values[i] = pomdp.r[i][action] + pomdp.gamma * values[i];
+            values[i] = er[i][action] + pomdp.gamma * values[i];
         }
     }
     
