@@ -42,11 +42,11 @@ clock_t rept;
 
 const double log_zero = log(0.0);
 
-inline double logmul (double a, double b) {
+inline double mylogmul (double a, double b) {
     return a + b;
 }
 
-inline double logadd (double a, double b) {
+inline double mylogadd (double a, double b) {
     double m = max(a, b);
     if (m == log_zero)
     {
@@ -128,10 +128,6 @@ struct POMDP
     double t[TNS][TNA][TNS];
     double o[TNS][TNA][TNO];
     double r[TNS][TNA];
-    
-    // to avoid recomputing log all the time
-    double log_t[TNS][TNA][TNS];
-    double log_o[TNS][TNA][TNO];
 
     vector<int> actions;
     vector<int> obs;
@@ -188,9 +184,6 @@ struct POMDP
         // start
         //curr_state = rand() % numstates;
         curr_state = START_STATE;
-        
-        calc_log_o();
-        calc_log_tr();
     }
     
     void step(int action)
@@ -245,24 +238,10 @@ struct POMDP
         actions.push_back(action);
         obs.push_back(new_obs);
         rewards.push_back(r[curr_state][action]);
-        states.push_back(next_state);
+        states.push_back(curr_state);
         curr_state = next_state;
 
         //cout << "action " << action << " " << prev_state << " -> " << next_state << endl;
-    }
-    
-    void calc_log_o()
-    {
-        for (int i = 0; i < numstates; ++i)
-        {
-            for (int j = 0; j < numactions; ++j)
-            {
-                for (int k = 0; k < numobs; ++k)
-                {
-                    log_o[i][j][k] = log(o[i][j][k]);
-                }
-            }
-        }
     }
     
     void set_o(double (&new_o)[TNS][TNA][TNO])
@@ -274,21 +253,6 @@ struct POMDP
                 for (int k = 0; k < numobs; ++k)
                 {
                     o[i][j][k] = new_o[i][j][k];
-                }
-            }
-        }
-        calc_log_o();
-    }
-    
-    void calc_log_tr()
-    {
-        for (int i = 0; i < numstates; ++i)
-        {
-            for (int j = 0; j < numactions; ++j)
-            {
-                for (int k = 0; k < numstates; ++k)
-                {
-                    log_t[i][j][k] = log(t[i][j][k]);
                 }
             }
         }
@@ -306,7 +270,6 @@ struct POMDP
                 }
             }
         }
-        calc_log_tr();
     }
 };
 
@@ -322,7 +285,7 @@ void initialize(POMDP &pomdp, double (&tr)[TNS][TNA][TNS])
             for (int k = 0; k < pomdp.numstates; ++k)
             {
                 //double p = sample_unif();
-                double p = sample_gamma();
+                double p = sample_gamma() + 0.0000000001;
                 //double p = 1.0;
                 tr[i][j][k] = p;
                 total += p;
@@ -337,78 +300,81 @@ void initialize(POMDP &pomdp, double (&tr)[TNS][TNA][TNS])
 
 
 // given an initialization, output the learned obs
-// also output log likelihood
 // also give confidence intervals that come from the expected counts
-double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS], double (&est_r)[TNS][TNA], double (&opt_r)[TNS][TNA])
+void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS], double (&est_r)[TNS][TNA], double (&opt_r)[TNS][TNA])
 {
-    const int T = pomdp.obs.size() - 2;
+    // at time t, the current state is pomdp.states[t]
+    // pomdp.rewards[t] is the reward for the current state
+    // pomdp.obs[t-1] is the current obs
+    // pomdp.actions[t] is the current action
     
-    if (T < 0)
+    // the number of time steps that have occurred
+    // the indices go from 0 to T-1
+    const int T = pomdp.states.size();
+    
+    if (T <= 0)
     {
-        return log(1.0);
+        return;
     }
     
-    // precompute log of the transition to speed things up
-    double log_tr[TNS][TNA][TNS];
-    
-    double alpha[T+1][TNS];
-    double beta[T+1][TNS];
-    double gamma[T+1][TNS];
-    
-    // at time t, the current state is pomdp.states[t]
-    // pomdp.rewards[t] is the reward for the previous state
-    // pomdp.obs[t] is the current obs
-    // pomdp.actions[t] is the previous action
+    double alpha[T][TNS];
+    double beta[T][TNS];
+    double gamma[T][TNS];
     
     double pi [2] = {0.5, 0.5};
-    const int num_iters = 10;
-    for (int iters = 0; iters < num_iters; ++iters) {
-        
-        // precompute the log of the transition
-        for (int x = 0; x < TNS; ++x)
-        {
-            for (int y = 0; y < TNA; ++y)
-            {
-                for (int z = 0; z < TNS; ++z)
-                {
-                    log_tr[x][y][z] = log(tr[x][y][z]);
-                }
-            }
-        }
+    
+    const int num_iters = 40;
+    for (int iters = 0; iters < num_iters; ++iters)
+    {
         
         // initialize the base cases of alpha and beta
-        for (int i = 0; i < TNS; ++i) {
-            alpha[0][i] = logmul(log(pi[i]), pomdp.log_o[i][pomdp.actions[0]][pomdp.obs[0]]);
-            beta[T][i] = log(1);
+        for (int i = 0; i < TNS; ++i)
+        {
+            alpha[0][i] = pi[i];
+            beta[T-1][i] = 1.0;
         }
+        
         // recursively build up alpha and beta from previous values
-        for (int t = 1; t <= T; ++t) {
-            
-            int a_l = t;
-            int b_l = T - t;
-            
+        for (int t = 1; t < T; ++t)
+        {
+            // alpha goes forward and beta goes backward
+            int ai = t;
+            int bi = T-t-1;
+            // to normalize alpha and beta
+            double a_denom = 0;
+            double b_denom = 0;
+            // do the recursive update
             for (int i = 0; i < TNS; ++i) {
-                double asum = log_zero;
-                beta[b_l][i] = log_zero;
-                for (int j = 0; j < TNS; ++j) {
-                    asum = logadd(asum, logmul(alpha[a_l - 1][j], (log_tr[j][pomdp.actions[a_l]][i])));
-                    
-                    double prod = beta[b_l+1][j] + (log_tr[i][pomdp.actions[b_l+1]][j]) + (pomdp.log_o[j][pomdp.actions[b_l+1]][pomdp.obs[b_l+1]]);
-                    beta[b_l][i] = logadd(beta[b_l][i], prod);
+                double asum = 0;
+                beta[bi][i] = 0;
+                for (int j = 0; j < TNS; ++j)
+                {
+                    asum += alpha[ai-1][j]*tr[j][pomdp.actions[ai-1]][i];
+                    beta[bi][i] += beta[bi+1][j]*tr[i][pomdp.actions[bi]][j]*pomdp.o[j][pomdp.actions[bi]][pomdp.obs[bi]];;
                 }
-                alpha[a_l][i] = logmul(asum, (pomdp.log_o[i][pomdp.actions[a_l]][pomdp.obs[a_l]]));
+                alpha[ai][i] = asum * pomdp.o[i][pomdp.actions[ai-1]][pomdp.obs[ai-2]];
+                
+                a_denom += alpha[ai][i];
+                b_denom += beta[bi][i];
+            }
+            
+            // normalize alpha and beta
+            for (int i = 0; i < TNS; ++i)
+            {
+                alpha[ai][i] /= a_denom;
+                beta[bi][i] /= b_denom;
             }
         }
         
-        // calculate gamma = alpha*beta but with normalization
-        for (int l = 0; l <= T; l++) {
-            double sum = log_zero;
-            for (int i = 0; i < TNS; i++) {
-                gamma[l][i] = alpha[l][i] + beta[l][i];
-                sum = logadd(sum, gamma[l][i]);
+        // calculate gamma
+        for (int t = 0; t < T; ++t) {
+            double sum = 0;
+            for (int i = 0; i < TNS; ++i) {
+                gamma[t][i] = alpha[t][i] * beta[t][i];
+                sum += gamma[t][i];
             }
             for (int i = 0; i < TNS; i++) {
-                gamma[l][i] -= sum;;
+                gamma[t][i] /= sum;;
             }
         }
         
@@ -416,7 +382,7 @@ double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS
         // gamma_action_sum is the expected number of times (s,a) occurred
         double gamma_action_sum[TNS][TNA];
         // the expected number of times (s,a,s') occurred
-        double epsilon_sum[TNS][TNA][TNS];
+        double xi_sum[TNS][TNA][TNS];
         
         // inferring reward values
         double ex_reward[TNS][TNA];
@@ -427,56 +393,54 @@ double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS
         {
             for (int y = 0; y < TNA; ++y)
             {
-                gamma_action_sum[x][y] = log_zero;
+                gamma_action_sum[x][y] = 0;
                 for (int z = 0; z < TNS; ++z)
                 {
-                    epsilon_sum[x][y][z] = log_zero;
+                    xi_sum[x][y][z] = 0;
                 }
                 ex_reward[x][y] = 0.0;
             }
         }
+        
         // add up according to actions up to but not including the last timestep
-        for (int l = 0; l <= T-1; ++l)
+        for (int t = 0; t < T-1; ++t)
         {
-            // sum for normalization later
-            double sum = log_zero;
-            // first calculate the values for these states
+            // sum for normalization of the xi
+            double sum = 0;
+            // the numerator of the xi
             double temp_vals[TNS][TNS];
             // current action
-            int cact = pomdp.actions[l+1];
+            int cact = pomdp.actions[t];
             
             // calculate gamma_action_sum
             for (int x = 0; x < TNS; ++x)
             {
-                
                 // update only the entries corresponding to the action at this timestep
-                gamma_action_sum[x][cact] = logadd(gamma[l][x],gamma_action_sum[x][cact]);
+                gamma_action_sum[x][cact] += gamma[t][x];
                 
                 for (int z = 0; z < TNS; ++z)
                 {
-                    // numerator of the expression
-                    // instead of calling logmul I just use +
-                    double top = alpha[l][x] + (log_tr[x][cact][z]) + (pomdp.log_o[z][cact][pomdp.obs[l+1]]) + beta[l+1][z];
-                    sum = logadd(sum, top);
+                    // calculate temp_vals
+                    double top = alpha[t][x]*tr[x][cact][z]*pomdp.o[z][cact][pomdp.obs[t]]*beta[t+1][z];
+                    sum += top;
                     temp_vals[x][z] = top;
                 }
             }
             
-            // calculate epsilon_sum
-            // next normalize and add to the sum
+            // calculate xi
+            // next normalize and add to the xi_sum
             for (int x = 0; x < TNS; ++x)
             {
                 for (int z = 0; z < TNS; ++z)
                 {
-                    if (sum != log_zero)
+                    if (sum > 0)
                     {
                         // subtract to divide to normalize
-                        temp_vals[x][z] -= sum;
+                        temp_vals[x][z] /= sum;
                         // acc it
-                        epsilon_sum[x][cact][z] = logadd(temp_vals[x][z],epsilon_sum[x][cact][z]);
+                        xi_sum[x][cact][z] += temp_vals[x][z];
                     }
                     // otherwise don't add anything
-                    
                 }
             }
             
@@ -484,7 +448,7 @@ double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS
             for (int x = 0; x < TNS; ++x)
             {
                 // weighted by the belief prob
-                ex_reward[x][cact] += pomdp.rewards[l+1] * exp(gamma[l][x]);
+                ex_reward[x][cact] += pomdp.rewards[t] * gamma[t][x];
             }
         }
         
@@ -496,35 +460,34 @@ double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS
             {
                 // compute the confidence intervals
                 double const confidence_alpha = 0.01;
-                double fake_count = exp(gamma_action_sum[x][y]);
+                double fake_count = gamma_action_sum[x][y];
                 double ci_radius = fake_count > 0.0 ? sqrt((0.5/fake_count)*log (2.0/confidence_alpha)) : 1.0;
                 
-                // for normalization fixing stuff up
+                // for normalizing the transitions
                 double sum = 0.0;
                 for (int z = 0; z < TNS; ++z)
                 {
-                    if (gamma_action_sum[x][y] == log_zero)
+                    if (gamma_action_sum[x][y] <= 0.0)
                     {
                         // if no data, then uniform
-                        tr[x][y][z] = 1.0/pomdp.numstates;
+                        tr[x][y][z] = 1.0/TNS;
                     }
                     else
                     {
-                        tr[x][y][z] = exp(epsilon_sum[x][y][z] - gamma_action_sum[x][y]);
+                        tr[x][y][z] = xi_sum[x][y][z] / gamma_action_sum[x][y];
                     }
                     sum += tr[x][y][z];
                     err[x][y][z] = ci_radius;
                     //err[x][y][z] = 1;
                 }
-                // normalize to fix stuff up
-                // not sure why this isn't already normalized - they should be
+                // normalize the transitions
                 for (int z = 0; z < TNS; ++z)
                 {
                     tr[x][y][z] /= sum;
                 }
                 
                 // compute expected reward
-                if (gamma_action_sum[x][y] == log_zero)
+                if (gamma_action_sum[x][y] <= 0.0)
                 {
                     // if no data, then rmax
                     opt_r[x][y] = pomdp.rmax;
@@ -532,8 +495,8 @@ double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS
                 }
                 else
                 {
-                    opt_r[x][y] = min(ex_reward[x][y] / exp(gamma_action_sum[x][y]) + ci_radius, pomdp.rmax);
-                    est_r[x][y] = min(ex_reward[x][y] / exp(gamma_action_sum[x][y]), pomdp.rmax);
+                    opt_r[x][y] = min(ex_reward[x][y] / gamma_action_sum[x][y] + ci_radius, pomdp.rmax);
+                    est_r[x][y] = min(ex_reward[x][y] / gamma_action_sum[x][y], pomdp.rmax);
                 }
             }
         }
@@ -546,7 +509,7 @@ double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS
             {
                 for (int y = 0; y < pomdp.numactions; ++y)
                 {
-                    cout << x << "," << y << " | " << exp(gamma_action_sum[x][y]) << endl;
+                    cout << x << "," << y << " | " << (gamma_action_sum[x][y]) << endl;
                 }
             }
             cout << "---------" << endl;
@@ -556,7 +519,7 @@ double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS
                 {
                     for (int z = 0; z < pomdp.numstates; ++z)
                     {
-                        cout << x << "," << y << "," << z << " | " << exp(epsilon_sum[x][y][z]) << endl;
+                        cout << x << "," << y << "," << z << " | " << (xi_sum[x][y][z]) << endl;
                     }
                 }
             }
@@ -569,13 +532,6 @@ double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS
         }
     }
     
-    // calculate log likelihood from alpha
-    double loglikelihood = log_zero;
-    for (int x = 0; x < pomdp.numstates; ++x)
-    {
-        loglikelihood = logadd(alpha[T][x],loglikelihood);
-    }
-    
     // for debugging
     if (0)
     {
@@ -583,24 +539,23 @@ double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS
         for (int l = 0; l <= T; l++){
             cout << "sim step " << l << ", s " << pomdp.states[l] << ", r " << pomdp.rewards[l] << ", a " << pomdp.actions[l] << ", o " << pomdp.obs[l] << ": ";
             for (int i = 0; i < pomdp.numstates; i++) {
-                cout << exp(gamma[l][i]) << " ";
+                cout << (gamma[l][i]) << " ";
             }
             cout << "| ";
             for (int i = 0; i < pomdp.numstates; i++) {
-                cout << exp(alpha[l][i]) << " ";
+                cout << (alpha[l][i]) << " ";
             }
             cout << "| ";
             for (int i = 0; i < pomdp.numstates; i++) {
-                cout << exp(beta[l][i]) << " ";
+                cout << (beta[l][i]) << " ";
             }
             cout << endl;
         }
     }
-    return loglikelihood;
 }
 
 
-double best_em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS], double (&est_r)[TNS][TNA], double (&opt_r)[TNS][TNA])
+void best_em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS], double (&est_r)[TNS][TNA], double (&opt_r)[TNS][TNA])
 {
     double max_ll = log(0.0);
     double curr_best_tr[TNS][TNA][TNS];
@@ -622,7 +577,8 @@ double best_em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA
     for (int i = 0; i < 100; ++i)
     {
         initialize(pomdp, tr);
-        double curr_ll = em(pomdp, tr, err, est_r, opt_r);
+        em(pomdp, tr, err, est_r, opt_r);
+        double curr_ll = log_zero;
         if (curr_ll > max_ll)
         {
             max_ll = curr_ll;
@@ -636,7 +592,6 @@ double best_em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA
     copy_t(curr_best_err, err);
     copy_r(curr_best_est_r, est_r);
     copy_r(curr_best_opt_r, opt_r);
-    return max_ll;
 }
 
 
@@ -659,7 +614,7 @@ double best_em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA
 void find_planning_params()
 {
     //srand(0);
-    srand(time(0));
+    //srand(time(0));
     POMDP pomdp;
     Planning<POMDP,double[TNS][TNA][TNS],double[TNS][TNA][TNO],double[TNS][TNA]> plan(pomdp);
     
@@ -681,17 +636,17 @@ void find_planning_params()
     }
     
     // let's make a purposefully bad transition matrix but with
-    tr[0][0][0] = 0.95; // stay in the same state
-    tr[0][0][1] = 0.05;
+    tr[0][0][0] = 0.99; // stay in the same state
+    tr[0][0][1] = 0.01;
     
-    //err[0][0][0] = 0.01; // a small chance to include more enticing probs
-    //err[0][0][1] = 0.01;
+    err[0][0][0] = 0.04; // a small chance to include more enticing probs
+    err[0][0][1] = 0.04;
     
     tr[0][1][0] = 0.9; // hard to go right
     tr[0][1][1] = 0.1;
     
-    //err[0][1][0] = 0.05; // a small chance to include correct probs
-    //err[0][1][1] = 0.05;
+    err[0][1][0] = 0.04; // a small chance to include correct probs
+    err[0][1][1] = 0.04;
     
     tr[1][0][0] = 1.0; // easily go back to left
     tr[1][0][1] = 0.0;
@@ -702,17 +657,15 @@ void find_planning_params()
     //err[1][1][0] = 0.5; // wrong estimate possible
     //err[1][1][1] = 0.5;
     
-    est_r[0][0] = 0.600;
-    est_r[0][1] = 0.359;
+    est_r[0][0] = 0.6;
+    est_r[0][1] = 0.0;
     est_r[1][0] = 1.0;
     est_r[1][1] = 1.0;
     
     int next_action = plan.backup_plan(tr, err, pomdp.o, o_zeros, est_r, true, 40);
-    
-    print_t(plan.opt_t);
-    
     assert (next_action >= 0);
     plan.print_points();
+    //print_t(plan.opt_t);
 }
 
 // testing the correctness of em
@@ -722,11 +675,14 @@ void find_planning_params()
 // because that might get rid of all variance when running bootstrap
 void test_em()
 {
-    //srand(0);
-    srand(time(0));
+    //int seed = 0;
+    int seed = 1393637117;
+    //int seed = time(0);
+    cout << "seed " << seed << endl;
+    srand(seed);
 
     //int B = 0;
-    int steps = 400;
+    int steps = 100;
 
     double tr[TNS][TNA][TNS];
     double err[TNS][TNA][TNS];
@@ -776,25 +732,9 @@ void test_em()
     
     srand(time(0));
     initialize(pomdp, tr);
-    //double loglikelihood = em(pomdp, tr, err, est_r, opt_r);
-    double loglikelihood = best_em(pomdp, tr, err, est_r, opt_r);
-    cout << "ll = " << loglikelihood << endl;
-    
-    if (0)
-    {
-        // let's make a purposefully bad transition matrix
-        tr[0][0][0] = 1.0; // stay in the same state
-        tr[0][0][1] = 0.0;
-        
-        tr[0][1][0] = 1.0; // hard to go right
-        tr[0][1][1] = 0.0;
-        
-        tr[1][0][0] = 1.0; // easily go back to left
-        tr[1][0][1] = 0.0;
-        
-        tr[1][1][0] = 1.0; // stay right
-        tr[1][1][1] = 0.0;
-    }
+    em(pomdp, tr, err, est_r, opt_r);
+    //double loglikelihood = best_em(pomdp, tr, err, est_r, opt_r);
+    //cout << "ll = " << loglikelihood << endl;
     
     cout << "esimated transitions" << endl;
     print_t(tr);
@@ -804,6 +744,7 @@ void test_em()
     print_r(est_r);
     cout << "estimated upper bound rewards" << endl;
     print_r(opt_r);
+    cout << "seed " << seed << endl;
 }
 
 void test_opt(bool use_opt, string const &reward_out, double decay = -1)
@@ -819,7 +760,7 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
 
     //int B = 0;
     int reps = 1;
-    int steps = 100;
+    int steps = 500;
     double sum_rewards = 0;
 
     vector<double> rs(steps, 0.0);
@@ -928,8 +869,8 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
             if (iter % 1 == 0)
             {
                 initialize(pomdp, tr);
-                //em(pomdp, tr, err, est_r, opt_r);
-                best_em(pomdp, tr, err, est_r, opt_r);
+                em(pomdp, tr, err, est_r, opt_r);
+                //best_em(pomdp, tr, err, est_r, opt_r);
                 // t = clock() - t;
                  //cout << "EM: " << ((float) t)/CLOCKS_PER_SEC << endl;
             }
@@ -994,9 +935,9 @@ int main ()
 {
     //find_planning_params();
     
-    //test_em();
+    test_em();
     
-    test_opt(true, "optimistic_rewards.txt");
+    //test_opt(true, "optimistic_rewards.txt");
     
     //int fs[] = {10,20,30,40,50};
     //int fs[] = {60,70,80,90,100};
