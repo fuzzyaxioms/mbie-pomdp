@@ -29,7 +29,7 @@ using namespace std;
 template<class T>
 void print_vector(vector<T> const &vec)
 {
-    for (int i = 0; i < vec.size(); ++i)
+    for (size_t i = 0; i < vec.size(); ++i)
     {
         cout << vec[i] << " ";
     }
@@ -176,10 +176,10 @@ struct Planning
         //cout << "****Before ";
         //print_vector(src_belief);
         double b_sum = 0.0;
-        for (int i = 0; i < src_belief.size(); ++i)
+        for (size_t i = 0; i < src_belief.size(); ++i)
         {
             double new_b = 0.0;
-            for (int j = 0; j < src_belief.size(); ++j)
+            for (size_t j = 0; j < src_belief.size(); ++j)
             {
                 //cout << "*****j=" << j << " " << opt_t[j][last_action][i] << endl;
                 new_b += src_belief[j]*opt_t[j][last_action][i];
@@ -204,7 +204,7 @@ struct Planning
             factor = 0.0;
             smoothing = 1.0/src_belief.size();
         }
-        for (int i = 0; i < src_belief.size(); ++i)
+        for (size_t i = 0; i < src_belief.size(); ++i)
         {
             dst_belief[i] = dst_belief[i] * factor + smoothing;
         }
@@ -281,7 +281,7 @@ struct Planning
                 // calculate the value of this new alpha vector
                 policy_eval(i, combo, tmp_values, tm, tw, zm, zw, er);
                 // now update the best alpha vector for all beliefs
-                for (int j = 0; j < beliefs.size(); ++j)
+                for (size_t j = 0; j < beliefs.size(); ++j)
                 {
                     double tmp_v = dot(beliefs[j], tmp_values);
                     if (tmp_v > vs[j])
@@ -312,9 +312,9 @@ struct Planning
                 // only when the last possible combination has been tried, stop
                 //print_vector(combo);
                 bool stop = true;
-                for (int j = 0; j < combo.size(); ++j)
+                for (size_t j = 0; j < combo.size(); ++j)
                 {
-                    if (combo[j] != alphas.size()-1)
+                    if (combo[j] != (int)alphas.size()-1)
                     {
                         stop = false;
                     }
@@ -363,7 +363,7 @@ struct Planning
     void policy_eval(int action, vector<int> const& combo, vector<double> &values, T const &tm, T const &tw, Z const &zm, Z const &zw, R const &er)
     {
         // maximization over observations
-        assert(values.size() == pomdp.numstates);
+        assert((int)values.size() == pomdp.numstates);
         // keep track of the inner max alpha values
         vector<double> tilde(pomdp.numstates, 0.0);
         // for loop over s'
@@ -484,7 +484,7 @@ struct Planning
     void next_combination(vector<int> &combo, int base)
     {
         int carry = 1;
-        for (int i = 0; i < combo.size(); ++i)
+        for (size_t i = 0; i < combo.size(); ++i)
         {
             combo[i] += carry;
             // carry to the next place
@@ -503,7 +503,7 @@ struct Planning
     {
         assert(x.size() == y.size());
         double val = 0.0;
-        for (int i = 0; i < x.size(); ++i)
+        for (size_t i = 0; i < x.size(); ++i)
         {
             val += x[i] * y[i];
         }
@@ -514,12 +514,12 @@ struct Planning
     void isort(vector<double> const &vals, vector<int> &sorted)
     {
         vector<Tuple<double,int> > tmp_vector;
-        for (int i = 0; i < vals.size(); ++i)
+        for (size_t i = 0; i < vals.size(); ++i)
         {
             tmp_vector.push_back(Tuple<double,int>(vals[i],i));
         }
         sort(tmp_vector.begin(), tmp_vector.end());
-        for (int i = 0; i < vals.size(); ++i)
+        for (size_t i = 0; i < vals.size(); ++i)
         {
             sorted[i] = tmp_vector[i].b;
         }
@@ -529,7 +529,7 @@ struct Planning
     void print_points()
     {
         assert(beliefs.size() == alphas.size());
-        for (int i = 0; i < beliefs.size(); ++i)
+        for (size_t i = 0; i < beliefs.size(); ++i)
         {
             cout << "Belief " << i << " -- ";
             print_vector(beliefs[i]);
