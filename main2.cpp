@@ -819,7 +819,7 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
 
     //int B = 0;
     int reps = 1;
-    int steps = 500;
+    int steps = 100;
     double sum_rewards = 0;
 
     vector<double> rs(steps, 0.0);
