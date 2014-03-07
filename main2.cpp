@@ -4,6 +4,7 @@
 #include <sstream>
 #include <vector>
 #include <cstdlib>
+#include <ctime>
 #include <algorithm>
 
 #define TIGER_NUMACTIONS 2
@@ -188,6 +189,8 @@ struct POMDP
     
     void step(int action)
     {
+        assert(action >= 0 and action < numactions);
+        
         int prev_state = curr_state;
         (void)prev_state;
 
@@ -284,8 +287,8 @@ void initialize(POMDP &pomdp, double (&tr)[TNS][TNA][TNS])
             double total = 0;
             for (int k = 0; k < pomdp.numstates; ++k)
             {
-                //double p = sample_unif();
-                double p = sample_gamma() + 0.0000000001;
+                double p = sample_unif() + 0.0000000001;
+                //double p = sample_gamma() + 0.0000000001;
                 //double p = 1.0;
                 tr[i][j][k] = p;
                 total += p;
@@ -301,7 +304,7 @@ void initialize(POMDP &pomdp, double (&tr)[TNS][TNA][TNS])
 
 // given an initialization, output the learned obs
 // also give confidence intervals that come from the expected counts
-void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS], double (&est_r)[TNS][TNA], double (&opt_r)[TNS][TNA])
+double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS], double (&est_r)[TNS][TNA], double (&opt_r)[TNS][TNA])
 {
     // at time t, the current state is pomdp.states[t]
     // pomdp.rewards[t] is the reward for the current state
@@ -314,7 +317,7 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS],
     
     if (T <= 0)
     {
-        return;
+        return 0;
     }
     
     double alpha[T][TNS];
@@ -326,7 +329,6 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS],
     const int num_iters = 40;
     for (int iters = 0; iters < num_iters; ++iters)
     {
-        
         // initialize the base cases of alpha and beta
         for (int i = 0; i < TNS; ++i)
         {
@@ -352,11 +354,14 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS],
                     asum += alpha[ai-1][j]*tr[j][pomdp.actions[ai-1]][i];
                     beta[bi][i] += beta[bi+1][j]*tr[i][pomdp.actions[bi]][j]*pomdp.o[j][pomdp.actions[bi]][pomdp.obs[bi]];;
                 }
-                alpha[ai][i] = asum * pomdp.o[i][pomdp.actions[ai-1]][pomdp.obs[ai-2]];
+                alpha[ai][i] = asum * pomdp.o[i][pomdp.actions[ai-1]][pomdp.obs[ai-1]];
                 
                 a_denom += alpha[ai][i];
                 b_denom += beta[bi][i];
             }
+            
+            assert(a_denom > 0);
+            assert(b_denom > 0);
             
             // normalize alpha and beta
             for (int i = 0; i < TNS; ++i)
@@ -373,6 +378,7 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS],
                 gamma[t][i] = alpha[t][i] * beta[t][i];
                 sum += gamma[t][i];
             }
+            assert(sum > 0);
             for (int i = 0; i < TNS; i++) {
                 gamma[t][i] /= sum;;
             }
@@ -480,6 +486,7 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS],
                     err[x][y][z] = ci_radius;
                     //err[x][y][z] = 1;
                 }
+                assert(sum >0);
                 // normalize the transitions
                 for (int z = 0; z < TNS; ++z)
                 {
@@ -552,10 +559,58 @@ void em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS],
             cout << endl;
         }
     }
+    
+    double log_const = log(1.0);
+    
+    // calculate the log likelihood by recomputing the alphas and keeping the constants around
+    // initialize the base cases of alpha
+    for (int i = 0; i < TNS; ++i)
+    {
+        alpha[0][i] = pi[i];
+    }
+    
+    // recursively build up alpha and beta from previous values
+    for (int t = 1; t < T; ++t)
+    {
+        // alpha goes forward and beta goes backward
+        int ai = t;
+        // to normalize alpha and beta
+        double a_denom = 0;
+        // do the recursive update
+        for (int i = 0; i < TNS; ++i) {
+            double asum = 0;
+            for (int j = 0; j < TNS; ++j)
+            {
+                asum += alpha[ai-1][j]*tr[j][pomdp.actions[ai-1]][i];
+            }
+            alpha[ai][i] = asum * pomdp.o[i][pomdp.actions[ai-1]][pomdp.obs[ai-1]];
+            
+            a_denom += alpha[ai][i];
+        }
+        
+        assert(a_denom > 0);
+        
+        // normalize alpha and add in the normalization constant
+        for (int i = 0; i < TNS; ++i)
+        {
+            alpha[ai][i] /= a_denom;
+        }
+        
+        log_const = mylogmul(log_const, log(a_denom));
+    }
+    
+    // now calculate the log likelihood by summing up the last of alpha
+    double ll = log(0.0);
+    for (int i = 0; i < TNS; ++i)
+    {
+        ll = mylogadd(ll, mylogmul(log_const, log(alpha[T-1][i])));
+    }
+    
+    return ll;
 }
 
 
-void best_em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS], double (&est_r)[TNS][TNA], double (&opt_r)[TNS][TNA])
+double best_em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS], double (&est_r)[TNS][TNA], double (&opt_r)[TNS][TNA])
 {
     double max_ll = log(0.0);
     double curr_best_tr[TNS][TNA][TNS];
@@ -574,11 +629,10 @@ void best_em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][
         }
     }
     
-    for (int i = 0; i < 100; ++i)
+    for (int i = 0; i < 5; ++i)
     {
         initialize(pomdp, tr);
-        em(pomdp, tr, err, est_r, opt_r);
-        double curr_ll = log_zero;
+        double curr_ll = em(pomdp, tr, err, est_r, opt_r);
         if (curr_ll > max_ll)
         {
             max_ll = curr_ll;
@@ -592,6 +646,7 @@ void best_em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][
     copy_t(curr_best_err, err);
     copy_r(curr_best_est_r, est_r);
     copy_r(curr_best_opt_r, opt_r);
+    return max_ll;
 }
 
 
@@ -675,14 +730,14 @@ void find_planning_params()
 // because that might get rid of all variance when running bootstrap
 void test_em()
 {
-    //int seed = 0;
-    int seed = 1393637117;
+    int seed = 0;
+    //int seed = 1393637117;
     //int seed = time(0);
     cout << "seed " << seed << endl;
     srand(seed);
 
     //int B = 0;
-    int steps = 100;
+    int steps = 500;
 
     double tr[TNS][TNA][TNS];
     double err[TNS][TNA][TNS];
@@ -732,9 +787,9 @@ void test_em()
     
     srand(time(0));
     initialize(pomdp, tr);
-    em(pomdp, tr, err, est_r, opt_r);
-    //double loglikelihood = best_em(pomdp, tr, err, est_r, opt_r);
-    //cout << "ll = " << loglikelihood << endl;
+    //double ll = em(pomdp, tr, err, est_r, opt_r);
+    double ll = best_em(pomdp, tr, err, est_r, opt_r);
+    cout << "ll = " << ll << endl;
     
     cout << "esimated transitions" << endl;
     print_t(tr);
@@ -749,18 +804,23 @@ void test_em()
 
 void test_opt(bool use_opt, string const &reward_out, double decay = -1)
 {
-    int seed = 0;
-    //int seed = 1393616006;
+    int initial_seed = 0;
     //int seed = time(0);
-    srand(seed);
-    //srand();
-    // outFile.open("outstream_100alpha.txt", ios::out | ios::app);
-    cout << "hello all" << endl;
-    cout << "seed = " << seed << endl;
-
-    //int B = 0;
-    int reps = 1;
-    int steps = 500;
+    
+    // bad seeds on which op doesn't get to the right policy in 500 steps
+    //int seed = 2102335928;
+    
+    // generate a bunch of seeds, one for each rep
+    srand(initial_seed);
+    vector<int> seeds;
+    //for (int i = 0; i < 100; ++i)
+    //{
+        //seeds.push_back(rand());
+    //}
+    seeds.push_back(2102335928);
+    
+    int reps = seeds.size();
+    int steps = 1100;
     double sum_rewards = 0;
 
     vector<double> rs(steps, 0.0);
@@ -786,6 +846,10 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
 
     for (int rep = 0; rep < reps; ++rep)
     {
+        int seed = seeds.at(rep);
+        srand(seed);
+        cout << "---- Start rep " << rep << endl;
+        cout << "seed " << seed << endl;
         rept = clock();
         // cout << rep << endl;
         POMDP pomdp;
@@ -804,7 +868,7 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
                 next_action = plan.backup_plan(tr, zeros, pomdp.o, zeros, est_r, true, 40);
             }
             // egreedy random action with decay
-            if (decay > 0.0)
+            if (decay > 0.0 and iter + 100 < steps)
             {
                 double ep_chance = 1.0 / (iter/decay + 1.0);
                 if (sample_unif() < ep_chance)
@@ -813,7 +877,7 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
                     next_action = rand() % pomdp.numactions;
                 }
             }
-            assert (next_action >= 0);
+            assert (next_action >= 0 and next_action < TNA);
             t = clock() - t;
              //cout << "Step: " << ((float) t)/CLOCKS_PER_SEC << endl;
              //cout << "next action: " << next_action << endl;
@@ -826,7 +890,7 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
             //print_vector(plan.curr_belief);
             
             // debug information
-            if (0)
+            if (1)
             {
                 cout << "-------------------- Iteration " << iter << " --------------------" << endl;
                 cout << "(s,a,r) = " << pomdp.states.back() << "," << pomdp.actions.back() << "," << pomdp.rewards.back() << endl;
@@ -881,12 +945,9 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
             rs[i] += pomdp.rewards[i];
             sum_rewards += pomdp.rewards[i];
         }
-        // cout << "Rewards: " << sum_rewards - prev_sum << endl;
-        rept = clock() - rept;
-        cout << "One Rep: " << ((float) rept)/CLOCKS_PER_SEC << endl;
         
         // show some stats on the run
-        if (0)
+        if (1)
         {
             cout << "states" << endl;
             for (size_t i = 0; i < pomdp.rewards.size(); ++i)
@@ -907,6 +968,11 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
             }
             cout << endl;
         }
+        
+        // cout << "Rewards: " << sum_rewards - prev_sum << endl;
+        cout << "seed " << seed << endl;
+        rept = clock() - rept;
+        cout << "---- End Rep: " << ((float) rept)/CLOCKS_PER_SEC << endl << endl;;
     }
     ofstream output_r(reward_out);
     for (size_t i = 0; i < rs.size(); ++i)
@@ -928,18 +994,19 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
     }
     
     cout << "Cumulative reward " << sum_rewards/reps << endl;
-    cout << "seed = " << seed << endl;
 }
 
-int main ()
+int main()
 {
     //find_planning_params();
     
-    test_em();
+    //test_em();
     
-    //test_opt(true, "optimistic_rewards.txt");
+    test_opt(true, "optimistic_rewards.txt");
+    //test_opt(false, "mean_rewards.txt");
     
-    //int fs[] = {10,20,30,40,50};
+    //int fs[] = {300};
+    //int fs[] = {40,60,80,100};
     //int fs[] = {60,70,80,90,100};
     //for (int f: fs)
     //{

@@ -327,7 +327,7 @@ struct Planning
             }
         }
         alphas.swap(new_alphas);
-        best_action = best_actions[int(floor(sample_unif()*best_actions.size()))];
+        best_action = best_actions[rand()%best_actions.size()];
         
         // see what actions are actually there
         if (0 and update_opt)
