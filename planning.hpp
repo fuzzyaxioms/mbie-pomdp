@@ -7,6 +7,7 @@
 #include <cassert>
 #include <algorithm>
 #include <cstdlib>
+#include <random>
 
 #ifndef TIGER_NUMACTIONS
 #define TIGER_NUMACTIONS 4
@@ -25,6 +26,8 @@
 #endif
 
 using namespace std;
+
+mt19937 random_engine;
 
 template<class T>
 void print_vector(vector<T> const &vec)
@@ -46,9 +49,26 @@ void print_array(T const &arr, int length)
     cout << endl;
 }
 
+void sample_seed(unsigned int s)
+{
+    random_engine.seed(s);
+}
+
+unsigned int sample_rand()
+{
+    return random_engine();
+}
+
 double sample_unif()
 {
-    return static_cast<double>(rand()) / RAND_MAX;
+    static_assert(random_engine.min() == 0, "Error");
+    return static_cast<double>(random_engine()) / random_engine.max();
+}
+
+unsigned int sample_int(unsigned int a, unsigned int b)
+{
+    static_assert(random_engine.min() == 0, "Error");
+    return static_cast<unsigned int>(round(sample_unif()*(b-a))) + a;
 }
 
 // gamma(1,1) - from wikipedia
@@ -126,17 +146,6 @@ struct Planning
         //double init_alpha_val = pomdp.rmax/(1.0-pomdp.gamma);
         //double init_alpha_val = 0;
         // initialize a set of beliefs and alpha vectors
-        // probably the alpha vectors will need to be initialized optimistically
-        // initialize a uniform belief and optimistic alpha
-        //for (int i = 0; i < 10; ++i)
-        //{
-            //vector<double> tmp_b(pomdp.numstates, 0.0);
-            //sample_dirichlet(tmp_b);
-            //beliefs.push_back(tmp_b);
-            //alphas.push_back(AVector());
-            //alphas[i].action = rand() % pomdp.numactions;
-            //alphas[i].values = vector<double>(pomdp.numstates, init_alpha_val);
-        //}
         
         // initialize belief points
         reset_belief_points();
@@ -165,7 +174,7 @@ struct Planning
             beliefs.push_back(tmp_b);
             alphas.push_back(AVector());
             int ix = i;
-            alphas[ix].action = rand() % pomdp.numactions;
+            alphas[ix].action = sample_int(0, pomdp.numactions-1);
             alphas[ix].values = vector<double>(pomdp.numstates, 0);
         }
     }
@@ -327,11 +336,12 @@ struct Planning
             }
         }
         alphas.swap(new_alphas);
-        best_action = best_actions[rand()%best_actions.size()];
+        best_action = best_actions[sample_int(0, best_actions.size()-1)];
         
         // see what actions are actually there
         if (0 and update_opt)
         {
+            cout << "best actions ";
             print_vector(best_actions);
         }
         

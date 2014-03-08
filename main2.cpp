@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
+#include <random>
 
 #define TIGER_NUMACTIONS 2
 #define TIGER_NUMSTATES 2
@@ -20,6 +21,7 @@ using namespace std;
 #define TNS TIGER_NUMSTATES
 #define TNA TIGER_NUMACTIONS
 #define TNO TIGER_NUMOBS
+#define TNR 3
 
 //#define TIGER_REWARD 10
 //#define TIGER_PENALTY (-100)
@@ -35,7 +37,6 @@ using namespace std;
 // now it's 0.5 and 1.0, then 0.1, then 0.9
 
 #define START_STATE (0)
-//#define START_STATE (rand() % pomdp.numstates)
 
 // ofstream outFile;
 clock_t t;
@@ -129,10 +130,19 @@ struct POMDP
     double t[TNS][TNA][TNS];
     double o[TNS][TNA][TNO];
     double r[TNS][TNA];
+    
+    // rewards as observations
+    // there are three of them 0, SMALL_REWARD, and BIG_REWARD
+    double ro[TNS][TNA][TNR];
+    // mapping from reward obs to reward
+    double ro_map[TNR];
 
     vector<int> actions;
     vector<int> obs;
     vector<double> rewards;
+    
+    // keep track of reward obs
+    vector<int> reward_obs;
     
     // useful for debugging
     vector<int> states;
@@ -154,6 +164,27 @@ struct POMDP
 
         r[1][0] = 0;
         r[1][1] = BIG_REWARD;
+        
+        ro_map[0] = 0;
+        ro_map[1] = SMALL_REWARD;
+        ro_map[2] = BIG_REWARD;
+        
+        // reflected in the reward obs
+        ro[0][0][0] = 0.0; 
+        ro[0][0][1] = 1.0; // SMALL_REWARD
+        ro[0][0][2] = 0.0;
+        
+        ro[0][1][0] = 1.0; // no reward
+        ro[0][1][1] = 0.0;
+        ro[0][1][2] = 0.0;
+        
+        ro[1][0][0] = 1.0; // no reward
+        ro[1][0][1] = 0.0;
+        ro[1][0][2] = 0.0;
+        
+        ro[1][1][0] = 0.0; 
+        ro[1][1][1] = 0.0;
+        ro[1][1][2] = 1.0; // BIG_REWARD
         
         // transitions are mostly deterministic except for trying to get to right from left
         t[0][0][0] = 1.0; // stay in the same state
@@ -183,7 +214,6 @@ struct POMDP
         o[1][1][1] = OBS_SUCCESS;
 
         // start
-        //curr_state = rand() % numstates;
         curr_state = START_STATE;
     }
     
@@ -198,7 +228,7 @@ struct POMDP
         double accum = 0.0;
         double target = sample_unif();
         int next_state = -1;
-        for (int i = 0; i < numstates; ++i)
+        for (int i = 0; i < TNS; ++i)
         {
             accum += t[curr_state][action][i];
             if (accum >= target)
@@ -207,13 +237,13 @@ struct POMDP
                 break;
             }
         }
-        assert(next_state >=0);
+        assert(next_state >=0 and next_state < TNS);
 
         // sample an obs
         int new_obs = -1;
         accum = 0.0;
         target = sample_unif();
-        for (int i = 0; i < numobs; ++i)
+        for (int i = 0; i < TNO; ++i)
         {
             accum += o[next_state][action][i];
             if (accum >= target)
@@ -222,25 +252,28 @@ struct POMDP
                 break;
             }
         }
-        // cout << new_obs << endl;
-        // for (int i = 0; i < TIGER_NUMSTATES; ++i)
-        // {
-        //         for (int j = 0; j < TIGER_NUMACTIONS; ++j)
-        //         {
-        //                 for (int k = 0; k < TIGER_NUMOBS; ++k)
-        //                 {
-        //                         //cout << plan.opt_z[i][j][k] << " ";
-        //                         cout << o[i][j][k] << " ";
-        //                 }
-        //                 cout << "|";
-        //         }
-        //         cout << endl;
-        // }
-        assert(new_obs >= 0);
+        assert(new_obs >= 0 and new_obs < TNO);
+        
+        // sample a reward
+        int new_reward_obs = -1;
+        accum = 0.0;
+        target = sample_unif();
+        for (int i = 0; i < TNR; ++i)
+        {
+            accum += ro[curr_state][action][i];
+            if (accum >= target)
+            {
+                new_reward_obs = i;
+                break;
+            }
+        }
+        assert(new_reward_obs >= 0 and new_reward_obs < TNR);
+        
         // update the stuff
         actions.push_back(action);
         obs.push_back(new_obs);
-        rewards.push_back(r[curr_state][action]);
+        reward_obs.push_back(new_reward_obs);
+        rewards.push_back(ro_map[new_reward_obs]);
         states.push_back(curr_state);
         curr_state = next_state;
 
@@ -390,11 +423,13 @@ double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS
         // the expected number of times (s,a,s') occurred
         double xi_sum[TNS][TNA][TNS];
         
+        // the expected number of times reward ob occurred for (s,a)
+        double rho_sum[TNS][TNA][TNR];
+        
         // inferring reward values
         double ex_reward[TNS][TNA];
         
-        // time to calculate gamma_action_sum and epsilon_sum
-        // initialize gamma_action_sum and epsilon_sum to all zeros
+        // initialize the expected counts to all zeros
         for (int x = 0; x < TNS; ++x)
         {
             for (int y = 0; y < TNA; ++y)
@@ -403,6 +438,10 @@ double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS
                 for (int z = 0; z < TNS; ++z)
                 {
                     xi_sum[x][y][z] = 0;
+                }
+                for (int r = 0; r < TNR; ++r)
+                {
+                    rho_sum[x][y][r] = 0;
                 }
                 ex_reward[x][y] = 0.0;
             }
@@ -465,7 +504,7 @@ double em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA][TNS
             for (int y = 0; y < TNA; ++y)
             {
                 // compute the confidence intervals
-                double const confidence_alpha = 0.01;
+                double const confidence_alpha = 0.01/(TNS*TNA);
                 double fake_count = gamma_action_sum[x][y];
                 double ci_radius = fake_count > 0.0 ? sqrt((0.5/fake_count)*log (2.0/confidence_alpha)) : 1.0;
                 
@@ -629,7 +668,7 @@ double best_em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA
         }
     }
     
-    for (int i = 0; i < 5; ++i)
+    for (int i = 0; i < 10; ++i)
     {
         initialize(pomdp, tr);
         double curr_ll = em(pomdp, tr, err, est_r, opt_r);
@@ -650,6 +689,13 @@ double best_em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA
 }
 
 
+void test_random()
+{
+    // test random number generators
+    cout << "Using rand() is in [" << 0 << "," << RAND_MAX << "]" << endl;
+    cout << "Using mt19937() is in [" << mt19937::min() << "," << mt19937::max() << "]" << endl;
+}
+
 // find a good number for the number of belief points and times to iterate
 // looks like 30 iterations is good enough to find the optimal policy with a big gap
 // but to be safe let's go with 40 since that works with worse sensors as well
@@ -668,8 +714,6 @@ double best_em(POMDP &pomdp, double (&tr)[TNS][TNA][TNS], double (&err)[TNS][TNA
 // go to the right state.
 void find_planning_params()
 {
-    //srand(0);
-    //srand(time(0));
     POMDP pomdp;
     Planning<POMDP,double[TNS][TNA][TNS],double[TNS][TNA][TNO],double[TNS][TNA]> plan(pomdp);
     
@@ -694,14 +738,14 @@ void find_planning_params()
     tr[0][0][0] = 0.99; // stay in the same state
     tr[0][0][1] = 0.01;
     
-    err[0][0][0] = 0.04; // a small chance to include more enticing probs
-    err[0][0][1] = 0.04;
+    err[0][0][0] = 0.05; // a small chance to include more enticing probs
+    err[0][0][1] = 0.05;
     
-    tr[0][1][0] = 0.9; // hard to go right
-    tr[0][1][1] = 0.1;
+    tr[0][1][0] = 0.65; // hard to go right
+    tr[0][1][1] = 0.35;
     
-    err[0][1][0] = 0.04; // a small chance to include correct probs
-    err[0][1][1] = 0.04;
+    err[0][1][0] = 0.00; // a small chance to include correct probs
+    err[0][1][1] = 0.00;
     
     tr[1][0][0] = 1.0; // easily go back to left
     tr[1][0][1] = 0.0;
@@ -730,11 +774,10 @@ void find_planning_params()
 // because that might get rid of all variance when running bootstrap
 void test_em()
 {
-    int seed = 0;
-    //int seed = 1393637117;
-    //int seed = time(0);
+    unsigned seed = 0;
+    //unsigned seed = time(0);
     cout << "seed " << seed << endl;
-    srand(seed);
+    sample_seed(seed);
 
     //int B = 0;
     int steps = 500;
@@ -785,7 +828,7 @@ void test_em()
     }
     cout << endl;
     
-    srand(time(0));
+    sample_seed(time(0));
     initialize(pomdp, tr);
     //double ll = em(pomdp, tr, err, est_r, opt_r);
     double ll = best_em(pomdp, tr, err, est_r, opt_r);
@@ -804,20 +847,20 @@ void test_em()
 
 void test_opt(bool use_opt, string const &reward_out, double decay = -1)
 {
-    int initial_seed = 0;
+    unsigned initial_seed = 0;
     //int seed = time(0);
     
     // bad seeds on which op doesn't get to the right policy in 500 steps
     //int seed = 2102335928;
     
     // generate a bunch of seeds, one for each rep
-    srand(initial_seed);
-    vector<int> seeds;
+    sample_seed(initial_seed);
+    vector<unsigned> seeds;
     //for (int i = 0; i < 100; ++i)
     //{
-        //seeds.push_back(rand());
+        //seeds.push_back(sample_rand());
     //}
-    seeds.push_back(2102335928);
+    seeds.push_back(1581585360);
     
     int reps = seeds.size();
     int steps = 1100;
@@ -846,8 +889,8 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
 
     for (int rep = 0; rep < reps; ++rep)
     {
-        int seed = seeds.at(rep);
-        srand(seed);
+        unsigned seed = seeds.at(rep);
+        sample_seed(seed);
         cout << "---- Start rep " << rep << endl;
         cout << "seed " << seed << endl;
         rept = clock();
@@ -874,7 +917,7 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
                 if (sample_unif() < ep_chance)
                 {
                     // egreedy to do actions
-                    next_action = rand() % pomdp.numactions;
+                    next_action = sample_int(0, pomdp.numactions-1);
                 }
             }
             assert (next_action >= 0 and next_action < TNA);
@@ -885,12 +928,11 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
             // advance the pomdp
             //pomdp.step(0);
             pomdp.step(next_action);
-            //pomdp.step(rand() % pomdp.numactions);
             //cout << "Curr Belief -- ";
             //print_vector(plan.curr_belief);
             
             // debug information
-            if (1)
+            if (0)
             {
                 cout << "-------------------- Iteration " << iter << " --------------------" << endl;
                 cout << "(s,a,r) = " << pomdp.states.back() << "," << pomdp.actions.back() << "," << pomdp.rewards.back() << endl;
@@ -933,8 +975,8 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
             if (iter % 1 == 0)
             {
                 initialize(pomdp, tr);
-                em(pomdp, tr, err, est_r, opt_r);
-                //best_em(pomdp, tr, err, est_r, opt_r);
+                //em(pomdp, tr, err, est_r, opt_r);
+                best_em(pomdp, tr, err, est_r, opt_r);
                 // t = clock() - t;
                  //cout << "EM: " << ((float) t)/CLOCKS_PER_SEC << endl;
             }
@@ -961,12 +1003,18 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
                 cout << pomdp.actions[i] << " ";
             }
             cout << endl;
-            cout << "rewards" << endl;
-            for (size_t i = 0; i < pomdp.rewards.size(); ++i)
+            cout << "reward obs" << endl;
+            for (size_t i = 0; i < pomdp.reward_obs.size(); ++i)
             {
-                cout << pomdp.rewards[i] << " ";
+                cout << pomdp.reward_obs[i] << " ";
             }
             cout << endl;
+            //cout << "rewards" << endl;
+            //for (size_t i = 0; i < pomdp.rewards.size(); ++i)
+            //{
+                //cout << pomdp.rewards[i] << " ";
+            //}
+            //cout << endl;
         }
         
         // cout << "Rewards: " << sum_rewards - prev_sum << endl;
@@ -998,6 +1046,8 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
 
 int main()
 {
+    //test_random();
+    
     //find_planning_params();
     
     //test_em();
