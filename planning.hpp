@@ -71,29 +71,6 @@ unsigned int sample_int(unsigned int a, unsigned int b)
     return static_cast<unsigned int>(round(sample_unif()*(b-a))) + a;
 }
 
-// gamma(1,1) - from wikipedia
-double sample_gamma()
-{
-    return -log(sample_unif());
-}
-
-// found this online as well
-// give back a sample uniform dirichlet distribution
-void sample_dirichlet(vector<double> &v)
-{
-    double norm = 0.0;
-    for (size_t i = 0; i < v.size(); ++i)
-    {
-        v[i] = sample_gamma();
-        norm += v[i];
-    }
-    // normalize
-    for (size_t i = 0; i < v.size(); ++i)
-    {
-        v[i] /= norm;
-    }
-}
-
 template<class T, class R>
 struct Tuple
 {
