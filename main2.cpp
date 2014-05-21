@@ -10,9 +10,10 @@
 #include <random>
 
 #define NUM_BELIEFS 20
+#define EM_USE_RO false
 #define EST_T true
 #define EST_O true
-#define EST_RO true
+#define EST_RO (EM_USE_RO and false)
 #define EST_R true
 
 #if 1
@@ -24,7 +25,7 @@
 #define START_STATE (0)
 #define SMALL_REWARD 0.5
 #define BIG_REWARD 1.0
-#define SUCCESS_PROB 0.05
+#define SUCCESS_PROB 0.1
 #define OBS_SUCCESS 0.9
 #define LEARNING_EASE 0.3
 #define REWARD_GAP 1.0
@@ -830,7 +831,14 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
         // initialize the base cases of alpha and beta
         for (int i = 0; i < TNS; ++i)
         {
-            alpha[0][i] = est_ro[i][pomdp.actions[0]][pomdp.reward_obs[0]] * pi[i];
+            if (EM_USE_RO)
+            {
+                alpha[0][i] = est_ro[i][pomdp.actions[0]][pomdp.reward_obs[0]] * pi[i];
+            }
+            else
+            {
+                alpha[0][i] = pi[i];
+            }
             beta[T-1][i] = 1.0;
         }
         
@@ -850,9 +858,23 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
                 for (int j = 0; j < TNS; ++j)
                 {
                     asum += alpha[ai-1][j]*est_t[j][pomdp.actions[ai-1]][i];
-                    beta[bi][i] += beta[bi+1][j]*est_t[i][pomdp.actions[bi]][j]*est_o[j][pomdp.actions[bi]][pomdp.obs[bi]]*est_ro[j][pomdp.actions[bi+1]][pomdp.reward_obs[bi+1]];
+                    if (EM_USE_RO)
+                    {
+                        beta[bi][i] += beta[bi+1][j]*est_t[i][pomdp.actions[bi]][j]*est_o[j][pomdp.actions[bi]][pomdp.obs[bi]]*est_ro[j][pomdp.actions[bi+1]][pomdp.reward_obs[bi+1]];
+                    }
+                    else
+                    {
+                        beta[bi][i] += beta[bi+1][j]*est_t[i][pomdp.actions[bi]][j]*est_o[j][pomdp.actions[bi]][pomdp.obs[bi]];
+                    }
                 }
-                alpha[ai][i] = asum * est_o[i][pomdp.actions[ai-1]][pomdp.obs[ai-1]] * est_ro[i][pomdp.actions[ai]][pomdp.reward_obs[ai]];
+                if (EM_USE_RO)
+                {
+                    alpha[ai][i] = asum * est_o[i][pomdp.actions[ai-1]][pomdp.obs[ai-1]] * est_ro[i][pomdp.actions[ai]][pomdp.reward_obs[ai]];
+                }
+                else
+                {
+                    alpha[ai][i] = asum * est_o[i][pomdp.actions[ai-1]][pomdp.obs[ai-1]];
+                }
                 
                 a_denom += alpha[ai][i];
                 b_denom += beta[bi][i];
@@ -967,7 +989,15 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
                     for (int z = 0; z < TNS; ++z)
                     {
                         // calculate temp_vals
-                        double top = alpha[t][x]*est_t[x][cact][z]*est_o[z][cact][pomdp.obs[t]]*beta[t+1][z]*est_ro[z][pomdp.actions[t+1]][pomdp.reward_obs[t+1]];
+                        double top = 1.0;
+                        if (EM_USE_RO)
+                        {
+                            top = alpha[t][x]*est_t[x][cact][z]*est_o[z][cact][pomdp.obs[t]]*beta[t+1][z]*est_ro[z][pomdp.actions[t+1]][pomdp.reward_obs[t+1]];
+                        }
+                        else
+                        {
+                            top = alpha[t][x]*est_t[x][cact][z]*est_o[z][cact][pomdp.obs[t]]*beta[t+1][z];
+                        }
                         sum += top;
                         temp_vals[x][z] = top;
                     }
@@ -1561,14 +1591,14 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
     // generate a bunch of seeds, one for each rep
     sample_seed(initial_seed);
     vector<unsigned> seeds;
-    for (int i = 0; i < 100; ++i)
+    for (int i = 0; i < 10; ++i)
     {
         seeds.push_back(sample_rand());
     }
     //seeds.push_back(2546248239);
     
     int reps = seeds.size();
-    int eps = 4000;
+    int eps = 5000;
     int max_steps_per_ep = 1;
     int steps = max_steps_per_ep * eps;
     double sum_rewards = 0;
@@ -1706,7 +1736,8 @@ void test_opt(bool use_opt, string const &reward_out, double decay = -1)
             
             // update beliefs for next step
             plan.belief_update_full();
-            if ((curr_ep == 250 or (curr_ep > 250 and (curr_ep+50) % 100  == 0)) and curr_ep_step == 0)
+            int initial_burn_in = 50;
+            if ((curr_ep == initial_burn_in or (curr_ep > initial_burn_in and (curr_ep-initial_burn_in) % 50  == 0)) and curr_ep_step == 0)
             {
                 initialize(pomdp, est_t, est_o, est_ro);
                 em(pomdp, est_t, err_t, est_o, err_o, est_ro, err_ro, est_r, opt_r);
@@ -1799,8 +1830,8 @@ int main()
     
     //test_em("l2_out.txt", "l2_out_err.txt", "linf_out.txt", "linf_out_err.txt");
     
-    //test_opt(true, "optimistic_rewards.txt");
-    test_opt(false, "mean_rewards.txt");
+    test_opt(true, "optimistic_rewards.txt");
+    //test_opt(false, "mean_rewards.txt");
     
     //int fs[] = {300};
     //int fs[] = {40,60,80,100};
