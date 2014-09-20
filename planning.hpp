@@ -10,7 +10,7 @@
 #include <random>
 
 #ifndef TIGER_NUMACTIONS
-#define TIGER_NUMACTIONS 4
+#define TIGER_NUMACTIONS 3
 #endif
 
 #ifndef TIGER_NUMSTATES
@@ -68,7 +68,9 @@ double sample_unif()
 unsigned int sample_int(unsigned int a, unsigned int b)
 {
     static_assert(random_engine.min() == 0, "Error");
-    return static_cast<unsigned int>(round(sample_unif()*(b-a))) + a;
+    unsigned int num = static_cast<unsigned int>(ceil(sample_unif()*(b - a + 1))) + a - 1;
+    // static_assert(a <= num <= b);
+    return num;
 }
 
 template<class T, class R>
@@ -131,9 +133,16 @@ struct Planning
         reset_curr_belief();
     }
     
+    // void reset_curr_belief()
+    // {
+    //     curr_belief = vector<double>(pomdp.numstates, 1.0/pomdp.numstates);
+    // }
+
     void reset_curr_belief()
     {
-        curr_belief = vector<double>(pomdp.numstates, 1.0/pomdp.numstates);
+        curr_belief = vector<double>(pomdp.numstates, 0.5);
+        // curr_belief[0] = 1.0;
+        // curr_belief[1] = 0.0;
     }
     
     void reset_belief_points()
@@ -170,13 +179,17 @@ struct Planning
                 //cout << "*****j=" << j << " " << opt_t[j][last_action][i] << endl;
                 new_b += src_belief[j]*opt_t[j][last_action][i];
             }
+            if (new_b <= pow(10, -200))
+            {
+                new_b = 0.0;
+            }
             dst_belief[i] = opt_z[i][last_action][last_obs]*new_b;
-            //cout << "*****opt_z " << opt_z[i][last_action][last_obs] << endl;
-            //cout << "*****new_b " << new_b << endl;
             b_sum += dst_belief[i];
         }
+        // cout << b_sum << endl;
         // normalize, but accounting for zero in which case it's uniform
         double factor,smoothing;
+        // cout << b_sum << endl;
         assert(b_sum >= 0.0);
         if (b_sum != 0.0)
         {
@@ -201,6 +214,7 @@ struct Planning
     // once we have the optimistic model, we can do a complete belief update from the beginning
     void belief_update_full()
     {
+        int epi = pomdp.epi;
         // reset the current belief to be uniform
         reset_curr_belief();
         vector<double> new_belief(curr_belief.size(), 0.0);
@@ -208,11 +222,11 @@ struct Planning
         vector<double> *src_belief = &curr_belief;
         vector<double> *dst_belief = &new_belief;
         
-        assert(pomdp.obs.size() == pomdp.actions.size());
+        assert(pomdp.obs[epi].size() == pomdp.actions[epi].size());
         // update belief from the very beginning
-        for (size_t i = 0; i < pomdp.obs.size(); ++i)
+        for (size_t i = 0; i < pomdp.obs[epi].size(); ++i)
         {
-            belief_update_step(pomdp.obs[i], pomdp.actions[i], *src_belief, *dst_belief);
+            belief_update_step(pomdp.obs[epi][i], pomdp.actions[epi][i], *src_belief, *dst_belief);
             std::swap(src_belief, dst_belief);
             // src_belief contains the most up to date beliefs at this point
         }
@@ -227,10 +241,11 @@ struct Planning
     // once we have the optimistic model, we can do a belief update for one step
     void belief_update()
     {
+        int epi = pomdp.epi;
         vector<double> new_belief(curr_belief.size(), 0.0);
         
-        int last_obs = pomdp.obs[pomdp.obs.size()-1];
-        int last_action = pomdp.actions[pomdp.actions.size()-1];
+        int last_obs = pomdp.obs[epi][pomdp.obs[epi].size()-1];
+        int last_action = pomdp.actions[epi][pomdp.actions[epi].size()-1];
         
         belief_update_step(last_obs, last_action, curr_belief, new_belief);
         curr_belief = new_belief;
@@ -627,8 +642,8 @@ struct Planning
             
             print_points();
         }
-        cout << "Rewards" << endl;
-        print_vector(pomdp.rewards);
+        // cout << "Rewards" << endl;
+        // print_vector(pomdp.rewards);
     }
 };
 

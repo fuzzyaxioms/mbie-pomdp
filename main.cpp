@@ -1,3 +1,4 @@
+#define  ARMA_DONT_USE_WRAPPER
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -30,7 +31,7 @@ double logadd (double a, double b){
 #define TIGER_REWARD 10
 #define TIGER_PENALTY (-100)
 #define OPT true
-#define FILENAME "2sensor_opt_rewards_100alpha.txt"
+#define FILENAME "sudo.txt"
 
 // ofstream outFile;
 clock_t t;
@@ -475,7 +476,7 @@ int main()
 
         int B = 10;
         int reps = 100;
-        int steps = 20000;
+        int steps = 400;
         double sum_rewards = 0;
         int listen_time = 2;
         int sim_steps = 0;
@@ -505,7 +506,16 @@ int main()
         {
                 // rept = clock();
                 // cout << rep << endl;
+
                 POMDP pomdp;
+                
+                // vector<cube> obs;
+                // cube newobs;
+                // for (int i = 0; i < TNA; i++)
+                // {
+                //     cube tmp;
+                //     obs.push_back(tmp);
+                // }
                 initialize(pomdp, o);
                 Planning<POMDP,double[TNS][TNA][TNS],double[TNS][TNA][TNO]> plan(pomdp);
                 for (int iter = 0; iter < steps; iter++){
@@ -538,6 +548,23 @@ int main()
                                 }
                         }
                         pomdp.step(next_action);
+
+                        // if (pomdp.actions[iter] == pomdp.actions[iter - 1] and pomdp.actions[iter - 1] == pomdp.actions[iter - 2] and last_triple < iter - 2) 
+                        // {
+                        //     int a = pomdp.actions[iter];
+                        //     newobs = randu<cube>(TNO, obs.at(a).n_cols + 1, 3);
+                        //     if (newobs.n_cols > 1)
+                        //     { 
+                        //         newobs.subcube(0, 0, 0, TNO - 1, obs.at(a).n_cols - 1, 2) = obs.at(a);
+                        //     }
+                        //     for (int i = 0; i < 3; i++)
+                        //     {
+                        //         newobs.slice(i).col(obs.at(a).n_cols) = I.col(pomdp.obs[iter-2+i]);
+                        //     }
+                        //     obs.at(a) = newobs;
+                        //     last_triple = iter;
+                        // }
+
                         //cout << "Curr Belief -- ";
                         //print_vector(plan.curr_belief);
                         // update beliefs
@@ -669,7 +696,6 @@ int main()
                 //                 last = act;
                 //         }
                 // }
-
                 for (size_t i = 0; i < pomdp.rewards.size(); ++i)
                 {
                         rs[i] += pomdp.rewards[i];
