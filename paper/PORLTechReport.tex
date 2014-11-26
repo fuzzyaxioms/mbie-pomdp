@@ -245,7 +245,140 @@ where $\mathcal{A}_t$ is the policy of the algorithm at time-step $t$, $\pi^*$ i
 
 \subsection{Sample Complexity Result}
 
-Need to fill in proof.
+
+\subsubsection{Difference in Belief States}
+
+Suppose you have some POMDP $M$, and you have some policy $\pi$ for it. What's the difference in value between using the true belief, and using some very close estimated belief when the true belief is something else? Let $V_{b'}(b)$ mean that the policy starts off thinking the belief is $b'$ but the belief is actually $b$. Also suppose that $|b'-b|_{\infty}\leq \epsilon$
+\begin{align}
+V^{\pi}_{b'}(b) - V^{\pi}_b(b) &= b \cdot \alpha' - b\cdot \alpha \\
+&= b \cdot \alpha' - b' \cdot \alpha' + b' \cdot \alpha' - b'\cdot \alpha + b' \cdot \alpha - b\cdot \alpha \\
+&\geq (b-b') \cdot \alpha'+ (b'-b) \cdot \alpha \\
+&\geq -\epsilon|S|V_{max} -\epsilon|S|V_{max} \\
+&= -2\epsilon|S|V_{max}
+\end{align}
+so we know a couple of things
+\begin{align}
+b\cdot \alpha &\geq b \cdot \alpha' \\
+b'\cdot \alpha' &\geq b' \cdot \alpha
+\end{align}
+
+\subsubsection{Approximate Belief Tracking}
+
+Suppose $|O(\cdot|s,a) - \widehat{O}(\cdot|s,a)|_{1} \leq \epsilon_1$ and $|T(\cdot|s,a) - \widehat{T}(\cdot|s,a)|_{1} \leq \epsilon_2$ and you start out with belief $|b(\cdot) - \widehat{b}(\cdot)|_{1} = 0$.
+
+We need some constraint that $\min_{|x|_1=1} \sum_{s} O(o|s,a)x(s)$ is bounded away from $0$ for any observation and action. Let's call it $\nu$.
+
+Then before normalization (assuming $|B(\cdot) - \widehat{B}(\cdot)|_1 \leq \delta$)
+\begin{align}
+|B'(\cdot) - \widehat{B}'(\cdot)|_1 &= \sum_{s'}\left|O(o|s',a)\left[\sum_s T(s'|s,a)B(s)\right]-\widehat{O}(o|s',a)\left[\sum_s \widehat{T}(s'|s,a)\widehat{B}(s)\right]\right|\\
+&\leq \sum_{s'}\left|O(o|s',a)\left[\sum_s T(s'|s,a)B(s)\right]-O(o|s',a)\left[\sum_s T(s'|s,a)\widehat{B}(s)\right]\right|\\
+&+ \sum_{s'}\left|O(o|s',a)\left[\sum_s T(s'|s,a)\widehat{B}(s)\right]-O(o|s',a)\left[\sum_s \widehat{T}(s'|s,a)\widehat{B}(s)\right]\right|\\
+&+ \sum_{s'}\left|O(o|s',a)\left[\sum_s \widehat{T}(s'|s,a)\widehat{B}(s)\right]-\widehat{O}(o|s',a)\left[\sum_s \widehat{T}(s'|s,a)\widehat{B}(s)\right]\right|\\
+&\leq \sum_{s'}\sum_s T(s'|s,a)\left|B(s)-\widehat{B}(s)\right| \\
+&+ \sum_{s'}\sum_s \widehat{B}(s)\left|T(s'|s,a)-\widehat{T}(s'|s,a)\right| \\
+&+ \sum_{s'}\sum_s \widehat{T}(s'|s,a)\widehat{B}(s)\left|O(o|s',a)-\widehat{O}(o|s',a)\right| \\
+&\leq \delta + \epsilon_2 + |S|\epsilon_1
+\end{align}
+so note that before normalization, it's just a linear error. So that after $t$ steps the error becomes
+\begin{align}
+|B_t(\cdot) - \widehat{B}_t(\cdot)|_1 \leq t\epsilon_2 + t|S|\epsilon_1
+\end{align}
+Let $A_i=\sum_s B_i(s)$ and $D_t = t\epsilon_2 + t|S|\epsilon_1$ for simplicity. Remember that we control how small $D_t$ is, so we can make it small enough that the rest of the inequalities hold. Note that $A_i\geq \nu$ by definition, which also means that $\nu > 0$ otherwise an impossible observation would've happened. Then after normalization:
+\begin{align}
+|b_t(\cdot)-\widehat{b}_t(\cdot)|_1 &\leq \sum_s \left| \frac{B_t(s)}{\prod_i A_i} - \frac{\widehat{B}_t(s)}{\prod_i \widehat{A}_i} \right| \\
+&\leq \sum_s \left| \frac{B_t(s)}{\prod_i A_i} - \frac{B_t(s)+D_t}{\prod_i [A_i-D_t]} \right| \text{by making the right term as large as possible} \\
+&\leq \sum_s \left| \frac{B_t(s)\prod_i A_i+D_t\prod_i A_i - B_t(s)\prod_i [A_i-D_t]}{\prod_i [A_i-D_t]\prod_i A_i} \right| \\
+&\leq \sum_s \left| \frac{D_t\prod_t A_t +B_t(s)(\prod_t A_t-\prod_t [A_t-D_t])}{\prod_t [A_t-D_t]\prod_t A_t} \right| \\
+&\leq \sum_s \left| \frac{D_t +2^tD_t}{\prod_t [A_t-D_t]\prod_t A_t} \right| \text{ if we expanded out that product and upper bounded $A_t\leq 1$ } \\
+&\leq \sum_s \left| \frac{D_t +2^tD_t}{\prod_t [A_t-D_t]^2} \right|\\
+&\leq |S|\frac{D_t +2^tD_t}{[\nu-D_t]^{2t}} \\
+&\leq |S|\frac{D_t +2^tD_t}{\nu^{2t}-4^tD_t} \\
+&\leq |S|\frac{1 +2^t}{(\nu^{2t}/D_t)-4^t}
+\end{align}
+
+Where we assume $D_t<1$ because its small, so that we can bound the expansions of $(1+D_t)^t\leq 1+2^tD_t$. Note that $\nu \leq A_t \leq 1$ as well.
+
+Now a sufficient bound for $D_t$ is
+\begin{align}
+\frac{\nu^{2t}}{D_t} &\geq \frac{4^t\epsilon + |S|(1+2^t)}{\epsilon} \\
+D_t &\leq \frac{\nu^{2t}\epsilon}{4^t\epsilon+|S|(1+2^t)} \\
+&\leq O\left( \frac{\epsilon}{2|S|}\left(\frac{\nu}{2}\right)^{2t} \right)
+\end{align}
+
+so it's exponential in time in $\nu$ but linear with $\epsilon$.
+
+\subsubsection{What happens when the minimum entry in the observation matrix is 0}
+
+Note that unnormalized belief update is essentially the dot product of a column in the observation matrix with some vector that sums to 1 (combination of beliefs and transitions). Then you can imagine a case where you have $(z_1, z_2, 0)$ as your three entries of the observation matrix, and corresponding $(a_1,a_2,a_3)$ of the other vector. Then you also have the estimated versions $(\widehat{z}_1,\widehat{z}_2,\widehat{z}_3)$ and corresponding $(\widehat{a}_1,\widehat{a}_2,\widehat{a}_3)$. Now suppose $\widehat{z}_3=\epsilon$, so after dotting them, let's look at the third normalized entry. On one hand it will be $\frac{0}{z_1a_1+z_2a_2}=0$, and on the other hand it will be $\frac{\epsilon a_3}{\epsilon a_3+z_1a_1+z_2a_2}$ if we assume all the other estimates are completely correct. Now we can imagine letting $a_3\rightarrow 1$. Then that means $a_1$ and $a_2$ go to zero, so that other expression tends towards $1$, which is very different from what it should be which is $0$.
+
+\subsubsection{Generalized Induced Inequality}
+Suppose $M$ and $M'$ are exactly the same on some set of known actions (so all states with that action is known). Suppose $\mathcal{A}$ is an algorithm that starts with policy $\pi$ and only changes it when an escape event occurs. Then let's consider all trajectories over the next $T$ steps. Those trajectories can be split up into two groups for each POMDP, ones where you escape and perform an unknown action, and ones where you don't and only perform known actions. For every trajectory where you don't escape, there is exactly the same trajectory for both POMDPs, because the dynamics are exactly the same, and since the policies are both the same (if we look at policies as mapping a history to an action) then they perform the same actions, and so they have identical trajectories. So there is this one-to-one mapping, that means the difference between trajectories of those kind is altogether $0$. It also means that the probability of escaping is exactly the same, since they have the exact same set of trajectories that don't escape (and everything adds up to $1$). Then it means the difference in the value functions is exactly determined by the trajectories that escape, which can be bounded.
+\begin{align}
+|V^{\mathcal{A}}_M(h,T) - V^{\pi}_{M'}(h,T)| &\leq [V^{\mathcal{A}}_M(h,T|\neg W)(1-w) - V^{\pi}_{M'}(h,T|\neg W)(1-w)] \\
+& + [V^{\mathcal{A}}_M(h,T|W)w - V^{\pi}_{M'}(h,T|W)w]\\
+&\leq V_{max}w
+\end{align}
+
+
+\subsubsection{Main Theorem with actions}
+
+\subsubsection{Assumptions}
+
+Let $\mathcal{A}$ be a POMDP algorithm such that it maintains a set $K_t$ of actions at every time step. Let $A_K$ denote the event that an action not in $K_t$ is taken in the next $T$ steps. $K_t$ can only have actions added to it, and only when $A_K$ occurs. Let $M$ denote the true underlying POMDP. Let $M_{K_t}$ denote the "optimistic" POMDP (equal to the true POMDP in parameters for actions in the known set) and for actions not in the known set, are set to something else. Then $\mathcal{A}$ maintains an approximate optimistic POMDP $\widehat{M}_{K_t}$ with its estimates and executes the optimal policy for it. $M_{K_t}$ can only change when $A_K$ occurs. Let $\widehat{\pi}_t$ be the policy that $\mathcal{A}$ has, which is the optimal policy for $\widehat{M}_{K_t}$. Then suppose the following hold for all time steps $t$ and histories $h_t$ with probability $1-\delta$:
+
+\begin{enumerate}
+\item $V^{*}_{M_{K_t}}(h_t) \geq V^{*}_M(h_t) - \epsilon/4$ (optimism)
+\item $V^{\widehat{\pi}_t}_{M_{K_t}}(h_t) \geq V^{*}_{M_{K_t}}(h_t) -\epsilon/4$ (accuracy)
+\item The total number of escape events from $K_t$ is bounded by $\zeta(\epsilon,\delta)$ (learning complexity)
+\end{enumerate}
+
+Then
+\begin{align}
+V^\mathcal{A}_{M}(h_t) &\geq V^{*}_{M}(h_t) - \epsilon
+\end{align}
+for all but
+\begin{align}
+O\left(\frac{\zeta(\epsilon,\delta)TV_{max}}{\epsilon}\log\left(\frac{1}{\delta}\right)\right)
+\end{align}
+time steps with probability $1-\delta$
+
+\subsubsection{Proof}
+
+Let $\widehat{\pi}_t$ be our algorithm's policy at time $t$ i.e. the optimal policy for $\widehat{M}_{K_t}$. Let $\pi_t$ be the optimal policy for $M_{K_t}$. Then from the generalized induced inequality:
+\begin{align}
+V^{\mathcal{A}}_M(h_t,T) &\geq V^{\widehat{\pi}}_{M_{K_t}}(h_t,T) - V_{max}\Pr(A_K)\\
+&= V^{\widehat{\pi}}_{M_{K_t}}(b,T) - V_{max}\epsilon_1
+\end{align}
+Then we can get rid of the $T$ by the definition of $T$ by adding some error (or if we're doing periodic, we don't need to do this step)
+\begin{align}
+V^{\mathcal{A}}_M(h_t) &\geq V^{\widehat{\pi}}_M(h_t,T) - \epsilon/8\\
+&= V^{\widehat{\pi}}_{M_{K_t}}(h_t,T) - V_{max}\epsilon_1 - \epsilon/8 \\
+&\geq V^{\widehat{\pi}}_{M_{K_t}}(h_t) - V_{max}\epsilon_1 - \epsilon/4
+\end{align}
+and by the accuracy assumption (which we can get from simulation lemma paper and Theorem 2, for slightly different policies in the same POMDP, where one policy is optimal wrt a very slight variation of the other).
+\begin{align}
+V^{\mathcal{A}}_M(h_t) \geq V^{*}_{M_{K_t}}(h_t) - V_{max}\epsilon_1 - 2\epsilon/4
+\end{align}
+and from optimism
+\begin{align}
+V^{\mathcal{A}}_M(h_t) \geq V^{*}_{M}(h_t) - V_{max}\epsilon_1 - 3\epsilon/4
+\end{align}
+
+So to make sure all of that is $\leq \epsilon$, we should let $\epsilon_1 \leq \epsilon/(4V_{max})$. So that means by chernoff-hoeffding bounds, the number of times when the escape probability is greater than that is bounded with high probability by
+\begin{align}
+O\left(\frac{\zeta(\epsilon,\delta)TV_{max}}{\epsilon}\log\left(\frac{1}{\delta}\right)\right)
+\end{align}
+
+\subsection{Applying the Theorem}
+
+\subsubsection{POMDP as MDP over histories in an Episodic Task}
+
+Let's construct a MDP where states are histories i.e. $h=(a_1,o_1,a_2,o_2,\dots,a_t,o_t)$ of length $0\leq t \leq H$ where $H$ is the length of an episode. That means there are $(|A||O|)^H$ states. Then we can just apply a regular MDP algorithm like MBIE which will get us
+\begin{align}
+\tilde{O}\left( \frac{(|A||O|)^{2H}A\min(T,H)V_{max}}{\epsilon^3(1-\gamma)^4} \right)
+\end{align}
+
+The min comes from the fact that if the episode is short, then a high escape probability can potentially affect the whole episode. If we use a better MDP algorithm we can get a better dependence on $S$ and bring down the exponential to just $H$ rather than $2H$.
 
 \section{Experiments}
 
