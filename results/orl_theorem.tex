@@ -115,14 +115,22 @@ Suppose $b_1 + b_2 = 1$ are non-negative reals and you know that $\frac{b_2}{b_1
 
 Note that $c$ and $\frac{1}{c}$ are symmetric cases.
 
-Now suppose we have another belief vector with a different constant ratio. Then using inverse triangle inequality
+Now suppose we have another belief vector with a different constant ratio
 \begin{align}
 |b_1 - b_3| &= \left| \frac{1}{1+c} - \frac{1}{1+d}\right| \\
 &= \frac{|d-c|}{(1+c)(1+d)} \\
-&= \frac{|\delta|}{(1+c)(1+c+\delta)} \text{ assume $c \leq d$}\\
-&\leq \frac{\delta}{(1+c)^2} \leq \epsilon\\
-\implies \delta &\leq (1+c)^2 \epsilon \\
-\implies \delta &\leq \epsilon
+&= \frac{\delta}{(1+c)(1+c+\delta)} \text{ assume $c \leq d$}\\
+&= \frac{1}{1+c} - \frac{1}{1+c+\delta}\\
+\text{So } \frac{1}{1+c} - \frac{1}{1+c+\delta} &\leq \epsilon\\
+\iff \delta &\leq \begin{cases}
+\frac{1}{\frac{1}{1+c}-\epsilon} - 1 - c & \epsilon < \frac{1}{1+c}\\
+\infty & \epsilon \geq \frac{1}{1+c}
+\end{cases}\\
+\text{So we want }  \frac{\delta}{(1+c)(1+c+\delta)} &\leq \epsilon\\
+\text{So a sufficient condition is } \frac{\delta}{(1+c)^2} &\leq \epsilon\\
+\Longleftarrow \delta &\leq (1+c)^2 \epsilon \\
+\Longleftarrow \delta &\leq \epsilon\\
+\text{What is a necessary condition?}
 \end{align}
 
 so we just need a small additive difference in the ratios. However that's the whole problem, since the ratios diverge multiplicatively.
