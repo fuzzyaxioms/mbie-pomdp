@@ -1,0 +1,206 @@
+\documentclass[10pt,english]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in,letterpaper]{geometry}
+
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amsthm}
+\usepackage{amssymb}
+
+\usepackage{graphicx}
+\usepackage[parfill]{parskip}
+%\usepackage{enumitem}
+
+\title{Optimistic POMDP Notes}
+\author{Daniel (Zhaohan) Guo}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Hoeffdings Confidence Intervals for bounded random variable}
+
+\begin{align}
+\Pr(|X-\mathbb{E}(X)| > \epsilon) &< \alpha \\
+\Pr(|X-\mathbb{E}(X)| > \epsilon) &< 2e^{-2\epsilon^2n}\\
+\alpha &= 2e^{-2\epsilon^2n}\\
+\implies \epsilon = \sqrt{\frac{1}{2n}\log\left(\frac{2}{\alpha}\right)}
+\end{align}
+so $\epsilon$ is the radius of the confidence interval.
+
+\section{EM with rewards}
+
+Let the transition matrix be $T(s'|s,a) = p(s'|s,a)$. Let the observation matrix be $Z(z|s',a)=p(z|s',a)$. Let the expected reward be $R(s,a)$, and let the reward matrix (when using rewards as observations) be $R(r|s,a)=p(r|s,a)$. Let $T_{\lambda},Z_\lambda,R_\lambda$ be the matrices according to the model $\lambda$.
+
+If we just want to estimate rewards (without treating them as observations) then we can do it very simply
+
+\begin{align}
+\tilde{R}(s,a) &= \frac{\sum_{t=1}^{T}\gamma_{s}(t)\delta(a_t,a) r_t}{\sum_{t=1}^{T}\gamma_{s}(t)\delta(a_t,a)}
+\end{align}
+
+If we were to treat the rewards as a set of discrete observations, then the update for each reward $k$ is
+
+\begin{align}
+\tilde{R}(r|s,a) &= \frac{\sum_{t=1}^{T}\delta(r_t,r) \gamma_{s}(t)\delta(a_t,a)}{\sum_{t=1}^{T}\gamma_{s}(t)\delta(a_t,a)}
+\end{align}
+
+and if we took expected value of the reward that would be
+
+\begin{align}
+\tilde{R}(s,a) &= \sum_r r\tilde{R}(r|s,a)
+\end{align}
+
+which reduces to the first equation.
+
+Now let's derive the other quantities when treating rewards as observations is a discrete distribution. Note in the history, there is no first observation. The actions are given.
+\begin{align}
+\alpha_s(t) &= p(r_{1..t},z_{2..t},s_t|a_{1..T},\lambda)
+\end{align}
+and now for how to calculate it recursively
+\begin{align}
+\alpha_s(1) &= p(r_1,s_1=s|a_1,\lambda) \\
+&= p(r_1|s_1=s,a_1,\lambda)p(s_1=s|a_1,\lambda) \\
+&= R_\lambda(r_1|s,a_1)\pi_s \\
+\alpha_s(t+1) &= p(r_{1..t+1},z_{2..t+1},s_{t+1}=s|a_{1..T},\lambda) \\
+&= \sum_{s'} p(r_{1..t+1},z_{2..t+1},s_{t+1}=s,s_t=s'|a_{1..T},\lambda) \\
+&= \sum_{s'} p(r_{t+1},z_{t+1},s_{t+1}=s|s_t=s',r_{1..t},z_{2..t},a_{1..T},\lambda) p(s_t=s',r_{1..t},z_{2..t}|a_{1..T},\lambda) \\
+&= \sum_{s'} p(r_{t+1},z_{t+1},s_{t+1}=s|s_t=s',r_{1..t},z_{2..t},a_{1..T},\lambda) \alpha_{s'}(t) \\
+&= \sum_{s'} p(r_{t+1},z_{t+1}|s_{t+1}=s,a_{1..T},\lambda) p(s_{t+1}=s|s_t=s',a_{1..T},\lambda) \alpha_{s'}(t) \\
+&= \sum_{s'} p(r_{t+1},z_{t+1}|s_{t+1}=s,a_{t},a_{t+1},\lambda) T_\lambda(s|s',a_t) \alpha_{s'}(t) \label{eq:alpha_joint} \\
+&= \sum_{s'} R_\lambda(r_{t+1}|s,a_{t+1}) Z_\lambda(z_{t+1}|s,a_t) T_\lambda(s|s',a_t) \alpha_{s'}(t) \\
+&= R_\lambda(r_{t+1}|s,a_{t+1}) Z_\lambda(z_{t+1}|s,a_t) \sum_{s'} T_\lambda(s|s',a_t) \alpha_{s'}(t)
+\end{align}
+In general, the rewards obs and regular obs could be dependent, which means you need to specify the joint distribution as in equation \ref{eq:alpha_joint}. Just for completeness, the equations for when not using reward as obs is the same except with the reward matrix taken out:
+\begin{align}
+\alpha_s(1) &= \pi_s \\
+\alpha_s(t+1) &= Z_\lambda(z_{t+1}|s,a_t) \sum_{s'} T_\lambda(s|s',a_t) \alpha_{s'}(t)
+\end{align}
+Also note that we can loosen the definition slightly and get something that's a constant multiple off
+\begin{align}
+A_s(1) &= C_t \alpha_s(1) \\
+A_s(t+t) &= C_{t+1} R_\lambda(r_{t+1}|s,a_{t+1}) Z_\lambda(z_{t+1}|s,a_t) \sum_{s'} T_\lambda(s|s',a_t) A_{s'}(t) \\
+&= C_{t+1} C_t R_\lambda(r_{t+1}|s,a_{t+1}) Z_\lambda(z_{t+1}|s,a_t) \sum_{s'} T_\lambda(s|s',a_t) \alpha_{s'}(t) \\
+&= C_{t+1} \alpha_s(t+1)
+\end{align}
+by absorbing constants (also works with just the obs and no reward obs). Using this looser formulation, we can normalize the numbers at every $t$ thus avoiding floating point overflow or underflow errors.
+
+We can use this to calculate the likelihood:
+\begin{align}
+p(r_{1..T},z_{2..T}|a_{1..T},\lambda) &= \sum_{s} \alpha_s(T)
+\end{align}
+
+Next is the backward procedure which is similar.
+\begin{align}
+\beta_s(t) &= p(r_{t+1..T},z_{t+1..T}|s_t=s,a_{1..T},\lambda)
+\end{align}
+and now for how to calculate it recursively
+\begin{align}
+\beta_s(T) &= 1\\ 
+\beta_s(t) &= \sum_{s'} p(r_{t+1..T},z_{t+1..T},s_{t+1}=s'|s_t=s,a_{1..T},\lambda) \\
+\beta_s(t) &= \sum_{s'} p(r_{t+1},z_{t+1}|s_{t+1}=s',a_{1..T},\lambda) p(s_{t+1}=s',r_{t+2..T},z_{t+2..T},|s_t=s,a_{1..T},\lambda) \\
+\beta_s(t) &= \sum_{s'} R_\lambda(r_{t+1}|s',a_{t+1}) Z_\lambda(z_{t+1}|s',a_t) p(s_{t+1}=s',r_{t+2..T},z_{t+2..T}|s_t=s,a_{1..T},\lambda) \\
+\beta_s(t) &= \sum_{s'} R_\lambda(r_{t+1}|s',a_{t+1}) Z_\lambda(z_{t+1}|s',a_t) p(r_{t+2..T},z_{t+2..T}|s_{t+1}=s',a_{1..T},\lambda) p(s_{t+1}=s'|s_t=s,a_{t},\lambda) \\
+\beta_s(t) &= \sum_{s'} R_\lambda(r_{t+1}|s',a_{t+1}) Z_\lambda(z_{t+1}|s',a_t) \beta_{s'}(t+1) T_\lambda(s'|s,a_t)
+\end{align}
+if we don't use the rewards as obs, then just remove that term from the equation. Also we can loosen this a bit and define $B_s(t) = C_t \beta_s(t)$ similarly as before. We can renormalize at every $t$ to avoid under/overflow. Next up is putting these two together
+\begin{align}
+\gamma_s(t) &= p(s_t=s|r_{1..T},z_{2..T},a_{1..T},\lambda) \\
+&= \frac{p(r_{1..T},z_{2..T},s_t=s|a_{1..T},\lambda)}{\sum_{s'} p(r_{1..T},z_{2..T},s_t=s'|a_{1..T},\lambda)} \\
+&= \frac{\alpha_s(t)\beta_s(t)}{\sum_{s'} \alpha_{s'}(t)\beta_{s'}(t)} \\
+&= \frac{A_s(t)B_s(t)}{\sum_{s'} A_{s'}(t)B_{s'}(t)}
+\end{align}
+So far reward obs fit right in very easily into the equations as you'd expect obs to show up. Next up is estimating transitions using expected transitions. \(\xi_{i,j,a}\) is the probability that you transition from state $i$ to $j$ when doing action $a$ in state $i$.
+\begin{align}
+\xi_{i,j,a}(t) &= \delta(a_t=a)p(s_t=i,s_{t+1}=j|r_{1..T},z_{2..T},a_{1..T},\lambda) \\
+\xi_{i,j,a}(t) &= \frac{\delta(a_t=a)p(r_{1..T},z_{2..T},s_t=i,s_{t+1}=j|a_{1..T},\lambda)}{\sum_{i,j} p(r_{1..T},z_{2..T},s_t=i,s_{t+1}=j|a_{1..T},\lambda)}\\
+p(r_{1..T},z_{2..T},s_t=i,s_{t+1}=j|a_{1..T},\lambda) &= p(r_{1..t},z_{2..t},r_{t+1..T},z_{t+1..T},s_t=i,s_{t+1}=j|a_{1..T},\lambda) \\
+&= p(r_{t+1..T},z_{t+1..T},s_{t+1}=j|s_t=i,a_{1..T},\lambda) \alpha_i(t) \\
+&= p(r_{t+2..T},z_{t+2..T},r_{t+1},z_{t+1}|s_{t+1}=j,a_{1..T},\lambda) T_\lambda(j|i,a_t) \alpha_i(t) \\
+&= p(r_{t+1},z_{t+1}|s_{t+1}=j,a_{t},a_{t+1},\lambda) T_\lambda(j|i,a_t) \alpha_i(t) \beta_j(t+1) \\
+&= R_\lambda(r_{t+1}|j,a_{t+1}) Z_\lambda(z_{t+1}|j,a_t) T_\lambda(j|i,a_t) \alpha_i(t) \beta_j(t+1)
+\end{align}
+Where the reward matrix is removable if you don't use the reward as obs. Also note we can substitute in $A_s(t)$ and $B_s(t)$ because the constants will cancel out. And then to actually do the prediction of course is just
+\begin{align}
+\tilde{T}(j|i,a) &= \frac{\sum_{t=1}^{T-1} \xi_{i,j,a}(t)}{\sum_{t=1}^{T-1} \gamma_i(t)\delta(a_t,a)}
+\end{align}
+which is up to $T-1$ since $\xi_{i,j,a}(t)$ is only defined up to $T-1$. And then to estimate the reward obs, you calculate the expected number of times a reward $r$ is observed from state $s$ executing action $a$
+\begin{align}
+\tilde{R}(r|s,a) &= \frac{\sum_{t=1}^T \gamma_s(t)\delta(a_t,a)\delta(r_t,r)}{\sum_{t=1}^T \gamma_s(t)\delta(a_t,a)}
+\end{align}
+and just for completeness the update for regular obs is very similar (except you need to check the previous action)
+\begin{align}
+\tilde{Z}(z|s',a) &= \frac{\sum_{t=1}^T \gamma_{s'}(t)\delta(a_{t-1},a)\delta(z_t,z)}{\sum_{t=1}^T \gamma_{s'}(t)\delta(a_{t-1},a)}
+\end{align}
+
+\section{POMDP with reward obs}
+
+Let's define the history of a POMDP with discrete rewards obs and use the fact that there's no first obs to make things cleaner
+\begin{align}
+h_t &= a_{1..t},o_{2..t},r_{1..t} \\
+h_1 &= a_1,r_1 \\
+h_2 &= a_1,a_2,o_2,r_1,r_2
+\end{align}
+Now let's look at belief update with these where there's some $b_0$
+\begin{align}
+b_s(t+1) &= p(s_{t+1}=s|h_{t+1}) \\
+&= p(s_{t+1}=s|o_{t+1},r_{t+1},a_{t+1},h_{t}) \\
+&= \frac{p(o_{t+1},r_{t+1},s_{t+1}=s|a_{t+1},h_{t})}{p(o_{t+1},r_{t+1}|a_{t+1},h_{t})} \\
+&\propto {p(o_{t+1},r_{t+1},s_{t+1}=s|a_{t+1},h_{t})} \\
+&= \sum_{s'} p(o_{t+1},r_{t+1},s_{t+1}=s,s_t=s'|a_{t+1},h_{t}) \\
+&= \sum_{s'} p(o_{t+1},r_{t+1}|s_{t+1}=s,a_t,a_{t+1}) p(s_{t+1}=s|s_t=s',a_{t}) p(s_t=s'|h_{t})\\
+&= \sum_{s'} p(o_{t+1},r_{t+1}|s_{t+1}=s,a_t,a_{t+1}) t(s|s',a_t) b_{s'}(t) \\
+b_s(1) &= p(s_{1}=s|r_{1},a_{1}) \\
+&\propto p(s_{1}=s,r_{1}|a_{1}) \\
+&= p(r_{1}|s_{1}=s,a_{1})b_s(0)
+\end{align}
+
+Now think about what a policy is. A one step policy is just a single action. A two step policy is to take a single action, see a reward and observation, then take another action. Then how to do a one step policy evaluation?
+\begin{align}
+\alpha_{\pi}(s) &= r(s,\pi_0) + \gamma\sum_{r}\sum_{s'}\sum_{o'}p(s',r,o'|s,\pi_0)\alpha_{\pi(r,o')}(s') \\
+&= r(s,\pi_0) + \gamma\sum_{r}\sum_{s'}\sum_{o'}\alpha_{\pi(r,o')}(s')p(r|s,\pi_0)p(o'|s',\pi_0)p(s'|s,\pi_0) \\
+&= r(s,\pi_0) + \gamma\sum_{r}p(r|s,\pi_0)\sum_{s'}p(s'|s,\pi_0)\sum_{o'}p(o'|s',\pi_0)\alpha_{\pi(r,o')}(s')
+\end{align}
+so to do a belief point backup, we need to pick an alpha vector for each possible reward and observation pair, and then compute this update. Then pick the alpha vector that best maximizes the dot product between it and the belief point. The optimistic version is:
+\begin{align}
+\alpha_{\pi}(s) &= r(s,\pi_0) + \gamma \max_{P_R} \sum_{r}p(r|s,\pi_0)\max_{P_T} \sum_{s'}p(s'|s,\pi_0) \max_{P_O} \sum_{o'}p(o'|s',\pi_0) \alpha_{\pi(r,o')}(s')
+\end{align}
+so to calculate these maximums, we can just do each max separate. The inner most maximum we have to calculate for every $(o',s')$. The middle maximum we do for every $s'$, and so on.
+
+\section{Old Main POMDP Theorem}
+
+\subsubsection{Generalized Induced Inequality}
+Suppose $M$ and $M_{OPT}$ are exactly the same on some set of known actions (so all states with that action is known). Then let's consider all trajectories over the next $T$ steps. Those trajectories can be split up into two groups for each POMDP, ones where you escape and perform an unknown action, and ones where you don't and only perform known actions. For every trajectory where you don't escape, there is exactly the same trajectory for both POMDPs, because the belief state tracking is exactly the same, and since the policies are both the same (if we look at policies as mapping a belief to an action) then they perform the same actions, and so they have identical trajectories. So there is this one-to-one mapping, that means the difference between trajectories of those kind is altogether $0$. It also means that the probability of escaping is exactly the same, since they have the exact same set of trajectories that don't escape (and everything adds up to $1$). Then it means the difference in the value functions is exactly determined by the trajectories that escape, which can be bounded.
+\begin{align}
+V^{\pi}_M(b,T) - V^{\pi}_{M_{OPT}}(b,T) &= [V^A_M(b,T|\neg W)(1-w) - V^{\pi}_{M_{OPT}}(b,T|\neg W)(1-w)] \\
+& + [V^A_M(b,T|W)w - V^{\pi}_{M_{OPT}}(b,T|W)w]\\
+&\geq -V_{max}w
+\end{align}
+
+\subsection{Old Main Theorem with just some set of known state--action pairs}
+
+Let $A$ be our algorithm's policy at time $t$. Assume $A$ doesn't change for the next $T$ steps. Let $M$ be the true POMDP. Let $M_{OPT}$ be the optimistic POMDP that our algorithm believes in. Let $\pi$ be the optimal policy for $M_{OPT}$. Let there be a set of known states, where the confidence intervals around all the state--action pairs of those states are very small. Let $W$ be the event that running $A$ in $M$ results in escaping to an unknown state in the next $T$ steps. Let $W'$ be the event that running $\pi$ in $M_{OPT}$ results in escaping to an unknown state in the next $T$ steps. Let $w=P(W)$ and similarly $w'=P(W')$. Then
+\begin{align}
+V^A_M(b,T) - V^{\pi}_{M_{OPT}}(b,T) &= [V^A_M(b,T|\neg W)(1-w) - V^{\pi}_{M_{OPT}}(b,T|\neg W')(1-w')] \\
+& + [V^A_M(b,T|W)w - V^{\pi}_{M_{OPT}}(b,T|W')w']
+\end{align}
+let's suppose that $|w-w'|<d_w$ and also that $\max(w,w')<\epsilon_w$. Then the smallest possible value for that second term is when the first term is as small as possible and then second is as big as possible.
+\begin{align}
+[V^A_M(b,T|W)w - V^{\pi}_{M_{OPT}}(b,T|W')w'] &\geq 0 - V_{max}\epsilon_w = -V_{max}\epsilon_w
+\end{align}
+now as for the first difference, we can add in some extra terms to make the difference clearer
+\begin{align}
+ & [V^A_M(b,T|\neg W)(1-w) - V^{\pi}_{M_{OPT}}(b,T|\neg W')(1-w')] \\
+ &= V^A_M(b,T|\neg W)(1-w) - V^A_M(b,T|\neg W)(1-w') + V^A_M(b,T|\neg W)(1-w') - V^{\pi}_{M_{OPT}}(b,T|\neg W')(1-w') \\
+ &= V^A_M(b,T|\neg W)(w'-w) + (1-w')[V^A_M(b,T|\neg W) - V^{\pi}_{M_{OPT}}(b,T|\neg W')] \\
+&\geq -V_{max}d_w + (1-w')[V^A_M(b,T|\neg W) - V^{\pi}_{M_{OPT}}(b,T|\neg W')] \\
+&\geq -V_{max}d_w - V_{max}\epsilon_w + [V^A_M(b,T|\neg W) - V^{\pi}_{M_{OPT}}(b,T|\neg W')]
+\end{align}
+so now we're left with
+\begin{align}
+V^A_M(b,T) - V^{\pi}_{M_{OPT}}(b,T) &\geq -V_{max}d_w -2V_{max}\epsilon_w + [V^A_M(b,T|\neg W) - V^{\pi}_{M_{OPT}}(b,T|\neg W')]
+\end{align}
+now let's take a closer look at that difference conditioned on not escaping. If neither of them escape, then they are just acting in the known POMDP. They both use the exact same transition, observation, reward parameters, so their updates are going to be very similar. The only difference is that they are running in slightly different POMDPs.
+
+\end{document}
