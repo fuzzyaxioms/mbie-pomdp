@@ -1,0 +1,32 @@
+# Two Room domain Daniel came up with.
+
+discount: 0.95
+values: reward
+states: left right 
+actions: go-left go-right
+observations: obs-left obs-right
+
+T:go-left
+1.0 0.0
+0.7 0.3
+
+T:go-right
+0.9 0.1
+0.0 1.0
+
+O:go-left
+0.9 0.1
+0.1 0.9
+
+O:go-right
+0.9 0.1
+0.1 0.9
+
+R:go-left : left : * : * 0.5
+
+R:go-left : right : * : * 0.0
+
+R:go-right : left : * : * 0.0
+
+R:go-right : right : * : * 0.85
+

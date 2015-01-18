@@ -1,0 +1,12 @@
+dir_name = 'gridworld_colored';
+solver_type = 'ipomdp';
+action_type = 'weighted_stochastic'; 
+hyper.use_optimal_policy = false;
+hyper.sname = 'noopt';
+for rep = 11:15;
+    hyper.type = 'isc';
+    hyper.update = 'none';	
+    hyper.gamma = 10;
+    hyper.alpha = 1;
+    tester( dir_name , action_type , solver_type , rep , hyper )
+end

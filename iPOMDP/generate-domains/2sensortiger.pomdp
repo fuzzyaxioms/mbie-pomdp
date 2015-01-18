@@ -1,0 +1,47 @@
+# Tiger with two sensors of different accuracies and matrices changed so they are all full rank.
+# listen-1 is a weaker sensor than listen-2
+
+discount: 0.75
+values: reward
+states: tiger-left tiger-right 
+actions: listen-1 listen-2 open-left open-right
+observations: obs-left obs-right
+
+T:listen-1
+identity
+
+T:listen-2
+identity
+
+T:open-left
+uniform
+
+T:open-right
+uniform
+
+O:listen-1
+0.75 0.25
+0.25 0.75
+
+O:listen-2
+0.82 0.18
+0.18 0.82
+
+O:open-left
+uniform
+
+O:open-right
+uniform
+
+R:listen-1 : * : * : * -1
+
+R:listen-2 : * : * : * -1
+
+R:open-left : tiger-left : * : * -100
+
+R:open-left : tiger-right : * : * 10
+
+R:open-right : tiger-left : * : * 10 
+
+R:open-right : tiger-right : * : * -100
+

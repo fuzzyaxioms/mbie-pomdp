@@ -1,0 +1,11 @@
+function tag_tester1
+dir_name = 'tag';
+solver_type = 'ipomdp';
+action_type = 'stochastic_forward_search'; 
+for rep = 1:10;
+    hyper.type = 'isc';
+    hyper.update = 'none';	
+    hyper.gamma = 10;
+    hyper.alpha = 1;
+    tester( dir_name , action_type , solver_type , rep , hyper )
+end

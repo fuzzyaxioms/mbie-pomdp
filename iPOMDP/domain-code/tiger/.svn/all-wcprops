@@ -1,0 +1,47 @@
+K 25
+svn:wc:ra_dav:version-url
+V 41
+/finale/rl_repo/!svn/ver/221/ipomdp/tiger
+END
+handmade_tiger_policy_1node.mat
+K 25
+svn:wc:ra_dav:version-url
+V 73
+/finale/rl_repo/!svn/ver/104/ipomdp/tiger/handmade_tiger_policy_1node.mat
+END
+tiger-human.mat
+K 25
+svn:wc:ra_dav:version-url
+V 57
+/finale/rl_repo/!svn/ver/104/ipomdp/tiger/tiger-human.mat
+END
+handmade_tiger_policy_5node.mat
+K 25
+svn:wc:ra_dav:version-url
+V 73
+/finale/rl_repo/!svn/ver/104/ipomdp/tiger/handmade_tiger_policy_5node.mat
+END
+handmade_tiger_policy_5node_random.mat
+K 25
+svn:wc:ra_dav:version-url
+V 80
+/finale/rl_repo/!svn/ver/104/ipomdp/tiger/handmade_tiger_policy_5node_random.mat
+END
+handmade_tiger_policy_5node_better.mat
+K 25
+svn:wc:ra_dav:version-url
+V 80
+/finale/rl_repo/!svn/ver/104/ipomdp/tiger/handmade_tiger_policy_5node_better.mat
+END
+tiger.mat
+K 25
+svn:wc:ra_dav:version-url
+V 51
+/finale/rl_repo/!svn/ver/104/ipomdp/tiger/tiger.mat
+END
+tiger_tester.m
+K 25
+svn:wc:ra_dav:version-url
+V 56
+/finale/rl_repo/!svn/ver/132/ipomdp/tiger/tiger_tester.m
+END

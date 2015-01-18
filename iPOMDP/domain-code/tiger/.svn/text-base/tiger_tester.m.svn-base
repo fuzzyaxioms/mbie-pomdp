@@ -1,0 +1,14 @@
+function tiger_tester
+dir_name = 'tiger';
+solver_type = 'ipomdp';
+action_type = 'weighted_stochastic'; 
+for rep = 1:10;
+    % hyper.update = 'none';	
+    hyper.update = 'mh';	
+    hyper.gamma = 10;
+    hyper.alpha = 1;
+    
+    % hyper
+    hyper.use_optimal_policy = true;
+    tester( dir_name , action_type , solver_type , rep , hyper )
+end

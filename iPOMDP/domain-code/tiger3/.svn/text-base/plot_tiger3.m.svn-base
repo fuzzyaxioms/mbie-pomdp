@@ -1,0 +1,65 @@
+clear
+for i = 1:25
+    % load( [ '~/research/dump/iPOMDP_train_rep_test_tiger3_ipomdp_none_weighted_stochastic_' num2str( i ) '.mat' ] );
+    load( [ '~/research/dump/iPOMDP_train_rep_test_tiger3_ipomdp_none_epsilon_greedy_' num2str( i ) '.mat' ] );
+    reward_set{ i } = cellfun( @sum , reward_set_test );
+    experience_set{ i } = experience_set_test;
+    node_set{ i } = node_count_set_test;
+end
+
+figure(1); clf; hold on;
+for i = 1:25
+    plot( experience_set{ i } , reward_set{ i } );
+end
+
+time_window = 300;
+reward_bin_set = cell( 1 , 20 );
+node_bin_set = cell( 1 , 20 );
+for i = 1:25
+    experience_bin_set = ceil( experience_set{ i } / time_window );
+    for exp_i = 1:numel( experience_bin_set )
+        node_bin_set{ experience_bin_set( exp_i ) } = [ ...
+            node_bin_set{ experience_bin_set( exp_i ) }  ...
+            node_set{ i }( exp_i , : ) ];            
+        reward_bin_set{ experience_bin_set( exp_i ) } = [ ...
+            reward_bin_set{ experience_bin_set( exp_i ) }  ...
+            reward_set{ i }( exp_i , : ) ];
+    end
+end
+
+for i = 1:numel( reward_bin_set )
+    mean_set( i ) = mean( reward_bin_set{ i } );
+    med_set( i ) = prctile( reward_bin_set{ i } , 50 );
+    std_set( i ) = std( reward_bin_set{ i } ) / sqrt( numel( reward_bin_set{ i } ) );
+    down_set( i ) = prctile( reward_bin_set{ i } , 5 );
+    up_set( i ) = prctile( reward_bin_set{ i } , 95 );
+
+    node_mean_set( i ) = mean( node_bin_set{ i } );
+    node_std_set( i ) = std( node_bin_set{ i } ); 
+end
+ 
+figure(2); clf; 
+subplot( 2 , 1 , 1 ); hold on;
+plot( [ 750 750 ] , [ -10 5 ] , '--' , 'Color' , [ .8 .8 .8 ] , 'linewidth' , 4 );
+time_set = ( 1:numel( mean_set( 1:9 )  ) ) * time_window;
+errorbar( time_set  , mean_set( 1:9 ) , 2*std_set( 1:9 ) , 'k' , 'linewidth' , 4 );
+ylim( [ -10 5 ] );
+xlim( [ 0 3000 ] );
+title( 'Rewards on Tiger-3' , 'FontSize' , 18 );
+ylabel( 'Test Rewards' , 'FontSize' , 16 );
+
+subplot( 2 , 1 , 2 ); hold on;
+plot( [ 750 750 ] , [ 2 7 ] , '--' , 'Color' , [ .8 .8 .8 ] , 'linewidth' , 4 );
+errorbar( time_set , node_mean_set( 1:9 ) , 2*node_std_set( 1:9 ) , 'k' , 'linewidth' , 4 );
+xlim( [ 0 3000 ] );
+title( 'Instantiated States on Tiger-3' , 'FontSize' , 18 );
+xlabel( 'Iterations of Experience' , 'FontSize' , 16 );
+ylabel( 'Instantiated States' , 'FontSize' , 16 );
+saveas( gca , 'tiger3' , 'fig' );
+saveas( gca , 'tiger3' , 'png' );
+saveas( gca , 'tiger3' , 'eps' );
+
+figure(3); clf; hold on;
+plot( time_set , med_set );
+plot( time_set , up_set );
+plot( time_set , down_set );

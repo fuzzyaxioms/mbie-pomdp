@@ -1,0 +1,47 @@
+K 25
+svn:wc:ra_dav:version-url
+V 45
+/finale/rl_repo/!svn/ver/100/ipomdp/gridworld
+END
+gridworld-human.mat
+K 25
+svn:wc:ra_dav:version-url
+V 65
+/finale/rl_repo/!svn/ver/100/ipomdp/gridworld/gridworld-human.mat
+END
+gridworld_simple_sol.mat
+K 25
+svn:wc:ra_dav:version-url
+V 70
+/finale/rl_repo/!svn/ver/100/ipomdp/gridworld/gridworld_simple_sol.mat
+END
+gridworld_simple.mat
+K 25
+svn:wc:ra_dav:version-url
+V 66
+/finale/rl_repo/!svn/ver/100/ipomdp/gridworld/gridworld_simple.mat
+END
+gridworld_sol.mat
+K 25
+svn:wc:ra_dav:version-url
+V 63
+/finale/rl_repo/!svn/ver/100/ipomdp/gridworld/gridworld_sol.mat
+END
+gridworld.mat
+K 25
+svn:wc:ra_dav:version-url
+V 59
+/finale/rl_repo/!svn/ver/100/ipomdp/gridworld/gridworld.mat
+END
+gridworld_tester.m
+K 25
+svn:wc:ra_dav:version-url
+V 64
+/finale/rl_repo/!svn/ver/100/ipomdp/gridworld/gridworld_tester.m
+END
+robotGridWorld.m
+K 25
+svn:wc:ra_dav:version-url
+V 62
+/finale/rl_repo/!svn/ver/100/ipomdp/gridworld/robotGridWorld.m
+END

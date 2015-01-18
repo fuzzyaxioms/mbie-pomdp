@@ -1,0 +1,29 @@
+To run tests with the ipomdp/ifsc, you will want a little script like
+the following (already in the various problem domain folders):
+
+dir_name = 'tiger';
+solver_type = 'ipomdp';
+action_type = 'stochastic_forward_search'; 
+for rep = 1:10;
+    hyper.gamma = 10;
+    hyper.alpha = 1;
+    tester( dir_name , action_type , solver_type , rep , hyper )
+end
+
+* The dir_name is the directory in which one can find (1) a file named
+dir_name.mat with a matlab structure problem in Spaan's format 
+
+* The solver types are: em, em_big, ipomdp, ffbs, and ffbs_big, where
+EM is expectation-maximization on a finite model and FFBS is
+forward-filtering backward-sampling on a finite model.  The _big means
+we use a finite model = 10*state_count, generally to show that
+over-estimating the number of underlying states isn't necessarily a
+good idea.
+
+* The action types are: stochastic_forward_search, epsilon_greedy,
+boss, beb, weighted_stochastic, and softmax.  Weighted stochastic runs
+quickly and performs about as well as the more principled forward
+search.  BOSS and BEB have a few implemenation quirks, use with care!
+
+* Gamma and alpha are the base and leaf concentration parameters of
+the HDP, respectively.

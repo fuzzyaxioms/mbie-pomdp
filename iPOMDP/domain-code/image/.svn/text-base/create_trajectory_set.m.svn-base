@@ -1,0 +1,19 @@
+load image
+load image_fsc
+fsc_set{ 1 } = fsc;
+test_param_set.max_iter_count = 50;
+rep_count = 100;
+
+% loop
+for i = 1:rep_count
+    history_set{ i } = testFSCSet( problem , fsc_set , test_param_set );
+end
+
+% stats
+for i = 1:rep_count
+    reward( i ) = sum( history_set{ i }( : , 3 ) );
+end
+
+figure(3);
+hist( reward )
+
