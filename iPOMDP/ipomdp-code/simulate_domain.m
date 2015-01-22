@@ -129,7 +129,7 @@ while experience_count < test_param_set.total_experience_count
         tmp_test_param_set = test_param_set;
         tmp_test_param_set.action_selection_type = 'epsilon_greedy';
         tmp_test_param_set.r_epsilon = 0;
-        for test_rep = 1:50
+        for test_rep = 1:10
             switch test_param_set.solver_type
  	    	case { 'utree' }  
                     tmp_utree_set = utree_set;

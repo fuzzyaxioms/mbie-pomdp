@@ -1,7 +1,7 @@
 horizon = 1900;
 num_runs = 6;
 % num_rows = fix((horizon - 250) / 100);
-num_rows = 40;
+num_rows = 36;
 % num_points = fix(num_rows / 5) + 1;
 num_points = num_rows;
 rewards = zeros(num_points, 1);

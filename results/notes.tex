@@ -203,4 +203,27 @@ V^A_M(b,T) - V^{\pi}_{M_{OPT}}(b,T) &\geq -V_{max}d_w -2V_{max}\epsilon_w + [V^A
 \end{align}
 now let's take a closer look at that difference conditioned on not escaping. If neither of them escape, then they are just acting in the known POMDP. They both use the exact same transition, observation, reward parameters, so their updates are going to be very similar. The only difference is that they are running in slightly different POMDPs.
 
+\section{Homing}
+
+It seems that we don't need to run in episodes over and over again like the original homing algorithm if we set in advance how close we want to be. First an outline of the algorithm
+\begin{itemize}
+\item first exploration, then exploitation
+\item First, exploration, and with MoM that means after homing H, we take one (maybe a couple more?) samples, then run H, and collect some samples again, and over and over. So for every sample we need H many steps. Since the confidence intervals would be essentially over the actions, and we can pick what actions to take, we can uniformly sample all the actions enough to a desired accuracy for the confidence intervals. This will require exponentially many samples.
+\item then we alternate homing and running the policy for some t steps, which will average close to $\epsilon$ reward
+\end{itemize}
+
+Alternatively, instead of this two-phase algorithm, we have many episodes of these two phases, in which we increase t every episode. So in the exploration part, we would only get enough new samples such that we can increase t by 1, and then repeat.
+
+So confidence intervals around actions are $\frac{C}{\sqrt{n}}$ where $n$ is the number of times that action has been taken. The error in a $t$ length exploitation run is exponential in $t$ e.g. $\epsilon_1 D^{at}$, and requires exponentially small confidence intervals. This means we need $n$ to be exponentially big wrt the target $\epsilon$.
+
+\begin{align}
+\frac{C}{\sqrt{n}} &= \epsilon_1 D^{-at} \\
+n &= \frac{C}{\epsilon_1^2} D^{2at} \\
+\frac{C}{\epsilon_1^2} D^{2a(t+1)} - \frac{C}{\epsilon_1^2} D^{2at}
+\end{align}
+
+so to increase $t$ by one, you need exponentially more samples every time.
+
+On mixing time, there is an additional thing to note since the policy of the algorithm is nonstationary, so that means the POMDP is not reaching a stationary distribution, but we still need to show that belief tracking gets close to the true belief.
+
 \end{document}

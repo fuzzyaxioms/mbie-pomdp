@@ -19,7 +19,7 @@
 #define EST_RO (EM_USE_RO and true)
 #define EST_R true
 
-#if 0
+#if 1
 #define POMDP POMDP_OneArm
 #define TIGER_NUMACTIONS 2
 #define TIGER_NUMSTATES 2
@@ -1537,7 +1537,7 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
         // M STEP: Use results averaged over all episodes to estimate the parameters.
         
         // some parameter for the confidence intervals
-        double const confidence_alpha = 0.9;
+        double const confidence_alpha = 0.9999;
  
         if (EST_T)
         {
@@ -2229,7 +2229,7 @@ void test_opt(bool use_opt, bool use_mom, string const &reward_out, string const
     //seeds.push_back(2546248239);
     
     int reps = seeds.size();
-    int eps = 400;
+    int eps = 100;
     int max_steps_per_ep = 50;
     int steps = max_steps_per_ep * eps;
     double sum_rewards = 0;
@@ -3008,7 +3008,7 @@ int main()
     //       OPT?, MoM?
     // test_opt(true, true, "optimistic_rewards_halfx_9s.txt");
     // test_opt(true, false, "tworoom_em_opt_episodic_rewards_75_everystep", "tworoom_em_opt_episodic_cumrewards_75_everystep", "tworoom_em_opt_episodic_actions_75_everystep");
-    // test_opt(false, false, "tworoom_em_mean_episodic_rewards_everystep", "tworoom_em_mean_episodic_cumrewards_everystep", "tworoom_em_mean_episodic_actions_everystep");
+    test_opt(true, false, "tworoom_em_opt_episodic_rewards_everystep", "tworoom_em_opt_episodic_cumrewards_everystep", "tworoom_em_opt_episodic_actions_everystep");
     // test_opt(false, false, "tworoom_em_egreedy_episodic_rewards", "tworoom_em_egreedy_episodic_cumrewards", "tworoom_em_egreedy_episodic_actions", 50);
 
     // test_opt(false, true, "mean_rewards_9s_new.txt");
@@ -3016,9 +3016,10 @@ int main()
     // test_opt(false, false, "sudo.txt");
 
     // test_opt(true, false, "tiger_all_opt_10_rewards", "tiger_all_opt_10_cumrewards", "tiger_all_opt_10_actions");
-    test_opt(false, false, "tiger_all_mean_rewards", "tiger_all_mean_cumrewards", "tiger_all_mean_actions");
+    //test_opt(false, false, "tiger_all_mean_rewards", "tiger_all_mean_cumrewards", "tiger_all_mean_actions");
     // test_opt(true, false, "newopt.txt", "newopt2.txt", "newopt3.txt");
-
+    
+    
     //int fs[] = {300};
     //int fs[] = {40,60,80,100};
     //int fs[] = {60,70,80,90,100};

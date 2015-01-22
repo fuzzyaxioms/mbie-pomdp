@@ -19,12 +19,12 @@
 %    are expected to be)
 %
 addpath ../ipomdp-code/
-dir_name = 'tiger';
+dir_name = 'tworoom';
 solver_type = 'ipomdp';
-action_type = 'epsilon_greedy'; 
-savedir = '../results/gammasampled/';
+action_type = 'weighted_stochastic'; 
+savedir = 'outputs/';
 for rep = 1:10;
-%     hyper_set.gamma = 10;
-%     hyper_set.alpha0 = 1;
+     hyper_set.gamma = 10;
+     hyper_set.alpha0 = 1;
     tester( dir_name , action_type , solver_type , rep , hyper_set, savedir )
 end

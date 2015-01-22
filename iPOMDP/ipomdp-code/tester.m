@@ -83,10 +83,10 @@ pomdp_param_set.pbvi_min_iter_count = 10;
 % test_param_set.resample_based_on_neffective = false;
 % MODIFIED SETTINGS for our experiments
 test_param_set.solver_type = solver_type;
-test_param_set.max_iter_count = 75; %horizon length/inter_update_count (or episode length for episodic domains)
-test_param_set.total_experience_count = 100 * test_param_set.max_iter_count; % number of updates wanted (or number of episodes) * max_iter_count
-test_param_set.inter_update_count = 100; 
-test_param_set.initial_update_count = 250;
+test_param_set.max_iter_count = 50; %horizon length/inter_update_count (or episode length for episodic domains)
+test_param_set.total_experience_count = 50 * test_param_set.max_iter_count; % number of updates wanted (or number of episodes) * max_iter_count
+test_param_set.inter_update_count = 50; 
+test_param_set.initial_update_count = 50;
 test_param_set.resample_based_on_neffective = false;
 
 % action-selection related parameters: algorithms are epsilon greedy, beb,
