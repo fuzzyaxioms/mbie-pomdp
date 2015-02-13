@@ -21,7 +21,7 @@
 addpath ../ipomdp-code/
 dir_name = '2sensortiger';
 solver_type = 'ffbs';
-action_type = 'weighted_stochastic'; 
+action_type = 'softmax'; 
 savedir = 'outputs/';
 for rep = 1:10;
      hyper_set.gamma = 10;

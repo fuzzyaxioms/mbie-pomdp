@@ -68,7 +68,10 @@ while( keep_running )
     % reward - Shayan)
     iter_count = iter_count + 1;
     keep_running = ( iter_count < test_param_set.max_iter_count );
-    if new_reward == sim_pomdp.maxReward
+    % several differen kinds of episodes -- whether to end only on max or
+    % on both max and min rewards
+    if new_reward == sim_pomdp.maxReward || new_reward == sim_pomdp.minReward
+%     if new_reward == sim_pomdp.maxReward
         state = sample_multinomial( sim_pomdp.start_dist , 1 );
         keep_running = false;
     end   

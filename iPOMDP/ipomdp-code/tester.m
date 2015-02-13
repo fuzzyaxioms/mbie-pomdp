@@ -85,14 +85,14 @@ pomdp_param_set.pbvi_min_iter_count = 10;
 test_param_set.solver_type = solver_type;
 test_param_set.max_iter_count = 50; %horizon length/inter_update_count (or episode length for episodic domains)
 test_param_set.total_experience_count = 50 * test_param_set.max_iter_count; % number of updates wanted (or number of episodes) * max_iter_count
-test_param_set.inter_update_count = 50; 
-test_param_set.initial_update_count = 50;
+test_param_set.inter_update_count = 100; 
+test_param_set.initial_update_count = 100;
 test_param_set.resample_based_on_neffective = false;
 
 % action-selection related parameters: algorithms are epsilon greedy, beb,
 % boss, weighted stochastic, softmax, and stochastic forward search
 test_param_set.action_selection_type = action_type;
-test_param_set.r_epsilon = .1;    % epsilon for the epsilon greedy 
+test_param_set.r_epsilon = 0.0;    % epsilon for the epsilon greedy, was 0.1
 test_param_set.search_depth = 4;   % for the value iteration algs
 test_param_set.branch_count = 3;   % for stochastic forward search
 test_param_set.beb_constant = 10;  % for the beb algorithm

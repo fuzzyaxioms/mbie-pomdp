@@ -1,0 +1,412 @@
+\documentclass{beamer} % For LaTeX2e
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{graphicx}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{amsfonts, amsmath, amsthm, amssymb}
+
+\usetheme{default}
+\usecolortheme{default}
+
+\setbeamertemplate{footline}[frame number]
+
+\title{Optimistic Partially Observable Reinforcement Learning}
+%\author{Shayan Doroudi \and Zhaohan Daniel Guo \and Emma Brunskill}
+
+
+%\author{
+%Shayan Doroudi \\
+%Computer Science Department \\
+%Carnegie Mellon University\\
+%Pittsburgh, PA 15213 \\
+%\texttt{shayand@andrew.cmu.edu} \\
+%\And
+%Zhaohan (Daniel) Guo \\
+%Computer Science Department \\
+%Carnegie Mellon University\\
+%Pittsburgh, PA 15213 \\
+%\texttt{zguo@andrew.cmu.edu} \\
+%}
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to \LaTeX{} to determine where to brea
+% the lines. Using \AND forces a linebreak at that point. So, if \LaTeX{}
+% puts 3 of 4 authors names on the first line, and the last on the second
+% line, try using \AND instead of \And before the third author name.
+
+\newcommand{\fix}{\marginpar{FIX}}
+\newcommand{\new}{\marginpar{NEW}}
+
+\newcommand{\p}{\mathbb{P}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\text{Var}}
+\newcommand{\sign}{\text{sign}}
+\newcommand{\Bias}{\text{Bias}}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+
+\newtheorem{cond}{Condition}
+
+\begin{document}
+
+\frame{\titlepage}
+
+\begin{frame}
+\frametitle{Introduction}
+
+Reinforcement Learning is used to solve
+
+\begin{itemize} 
+\item robotics
+\item games
+\item advertisement
+\item education
+\item anything where you interact with an unknown environment, and can only make noisy observations
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}
+\frametitle{Partially Observable Markov Decision Process (POMDP)}
+
+A general model of an agent interacting with an unknown stochastic environment, and gets noisy observations and rewards feedback. It is represented by $(S,A,Z, T,O, R, b_0, \gamma, H)$, where 
+\begin{itemize}
+	\item $S$ is a finite set of states, 
+	\item $A$ is a finite set of actions, 
+	\item $Z$ is a finite set of observations, 
+	\item $T(s,a,s') = p(s'|s,a)$  represents the transition model 
+	\item $O(s',a,z) = p(z|s',a)$ represents the observation model
+	\item $R(s,a)$ represents the expected reward model 
+	\item $b_0: S \rightarrow [0, 1]$ is the initial state distribution
+	\item $\gamma \in [0, 1)$ is a discount factor for rewards.
+\end{itemize}
+
+Because the true state is not observed, a belief state is maintained (probability over the states).
+
+\end{frame}
+
+\begin{frame}
+	\frametitle{Partially Observable Markov Decision Process (POMDP)}
+	
+	The problem is that we don't know $T,O,R$, so our approach is to
+	\begin{itemize}
+		\item estimate $T,O,R$ from the interactions
+		\item use the estimated parameters to compute a good policy
+	\end{itemize}
+	
+	The key idea to our approach is optimism under uncertainty. We will construct confidence intervals around the estimated parameters, and then compute an optimistic policy within them.
+	
+	Existing methods treat $T,O,R$ as latent variables, put a prior on them, and do Bayesian inference.
+	
+\end{frame}
+
+\begin{frame}
+	\frametitle{Optimism Under Uncertainty}
+
+\begin{itemize}
+	\item For Markov Decision Processes (MDPs), the idea of optimism under uncertainty has led to efficient algorithms, like MBIE and UCRL. They have been shown to be PAC-efficient and achieve near optimal regret respectively.
+	\item We would like to extend that approach to POMDPs, and give corresponding theoretical bounds.
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}
+	\frametitle{Estimating $T,O,R$}
+	
+	\begin{block}{Method of Moments (MoM)}
+		Extend recent work for MoM on Hidden Markov Models (HMM) to estimate the parameters.
+	\end{block}
+	
+	\begin{block}{Pros:}
+		\begin{itemize}
+			\item Converges to the true parameters with more and more data
+			\item Gives confidence intervals over the parameters
+		\end{itemize}
+	\end{block}
+	
+	\begin{block}{Cons:}
+		\begin{itemize}
+			\item Many restrictions on $T,O,R$ such as needing full rank
+			\item Problematic to implement as there are cases when it can give no answer
+		\end{itemize}
+	\end{block}
+	
+\end{frame}
+
+\begin{frame}
+	\frametitle{Estimating $T,O,R$}
+	
+	\begin{block}{Expectation Maxmization (EM)}
+		Extend from HMMs
+	\end{block}
+	
+	\begin{block}{Pros:}
+		\begin{itemize}
+			\item Easy to implement
+		\end{itemize}
+	\end{block}
+	
+	\begin{block}{Cons:}
+		\begin{itemize}
+			\item Converges to local optima
+			\item No confidence intervals
+			\begin{itemize}
+				\item can create fake confidence intervals by using the expected counts
+			\end{itemize}
+		\end{itemize}
+	\end{block}
+	
+\end{frame}
+
+\begin{frame}
+	\frametitle{Finding an Optimistic Policy}
+	
+	Assume we have parameter estimates, and confidence intervals over them, how to compute an optimistic policy (a.k.a. planning optimistically)?
+	
+	\begin{block}{}
+		We use an approach based on the $\alpha$-vector representation of policies.
+	\end{block}
+	
+\end{frame}
+
+\begin{frame}
+	\frametitle{Finding an Optimistic Policy}
+	\framesubtitle{$\alpha$-vectors}
+	
+	For MDPs, a policy is simply a mapping from states to actions. However for POMDPs, we don't know the state, only observations. We need to know what action to take after every observation. The policy maps sequences of observations to actions. You can think of it has a tree of branching observations.
+	
+	\begin{align*}
+	\pi(z_1) \rightarrow A \\
+	\pi(z_1, z_2) \rightarrow A\\
+	\pi(z_1, z_2, z_3) \rightarrow A\\
+	\dots
+	\end{align*}
+	
+	The $\alpha$-vector of a particular policy for a particular state, $\alpha_\pi(s)$ is the expected discounted reward of starting in state $s$ and following the policy $\pi$. Similar to the value function of MDPs, $V_\pi(s)$.
+\end{frame}
+
+\begin{frame}
+	\frametitle{Finding an Optimistic Policy}
+	\framesubtitle{$\alpha$-vectors}
+	
+	The $\alpha$-vectors can be computed recursive, starting with 1-step policies, and building up each policy one step at a time. The $(k+1)$-step policy can be computed as follows, by first taking the $(k+1)$-th action when there are no observations, and then taking a $k$-step policy depending on what the observation is
+	
+\begin{align*}
+\alpha_{\pi_{k+1}}(s) &= R(s,a_{k+1}) + \gamma \sum_{s'}\left[ T(s,a_{k+1},s') \sum_z O(s',a_{k+1},z)\alpha_{z,\pi_k} (s') \right]
+\end{align*}
+
+\end{frame}
+
+\begin{frame}
+	\frametitle{Finding an Optimistic Policy}
+	\framesubtitle{$\alpha$-vectors}
+	
+	To compute an optimistic policy, we just need to maximize over the confidence intervals
+	
+	\begin{align*}
+	\alpha_{\pi_{k+1}}(s) &= \max_{T,O,R} R(s,a_{k+1}) \\
+	& + \gamma \sum_{s'}\left[ T(s,a_{k+1},s') \sum_z O(s',a_{k+1},z)\alpha_{z,\pi_k} (s') \right]
+	\end{align*}
+	
+\end{frame}
+
+\begin{frame}
+	\frametitle{Finding an Optimistic Policy}
+	\framesubtitle{$\alpha$-vectors}
+	
+	To compute an optimal optimistic policy, we just need to maximize additionally over the actions and $k$-step policies.
+	
+	\begin{align*}
+	\alpha_{\pi_{k+1}}(s) &=  \max_{a} \max_{T,O,R} R(s,a) \\
+	& + \gamma \sum_{s'}\left[ T(s,a,s') \sum_z \max_{\alpha_{z,\pi_k}} O(s',a,z)\alpha_{z,\pi_k} (s') \right]
+	\end{align*}
+	
+\end{frame}
+
+\begin{frame}
+	\frametitle{Tractable Planning}
+	\framesubtitle{Point Based Value Iteration (PBVI)}
+	
+	The number of possible policies grows exponentially every step, so the total number of possible policies is doubly exponential. We will extend a previous approach called Point Based Value Iteration (PBVI), which basically keeps only a constant (or slowly increasing set of policies, $M$, every step. Then the blowup in number of policies is kept constant every step:
+	
+	\begin{align*}
+	\alpha_{\pi_{k+1}}(s) &=  \max_{a} \max_{T,O,R} R(s,a) \\
+	& + \gamma \sum_{s'}\left[ T(s,a,s') \sum_z \max_{\alpha_{z,\pi_k} \in M} O(s',a,z)\alpha_{z,\pi_k} (s') \right]
+	\end{align*}
+	
+	The maximization over the confidence intervals can be solved by a simple linear-time algorithm.
+	
+\end{frame}
+
+\begin{frame}
+	\frametitle{Tractable Planning}
+	\framesubtitle{Point Based Value Iteration (PBVI)}
+	
+	Extended PBVI keeps around a set of belief vectors $B$, and an associated $\alpha$-vector for each belief. The corresponding $\alpha$-vector is the one that achieves the most expected discounted reward from that belief, i.e. that maximizes $b \cdot \alpha$.
+	
+	\begin{block}{}
+		Every update, it uses the recursive equation to compute a set of new possible $\alpha$-vectors. Then out of the new set, it finds the associated best one for each belief, and discards the rest.
+	\end{block}
+	
+\end{frame}
+
+
+\begin{frame}
+	\frametitle{Tractable Planning}
+	\framesubtitle{High Level Algorithm}
+	\begin{algorithmic}
+		\State $h \gets $ [ ] \# The history starts out with nothing.
+		\While{True}
+		\State $(\underline{T}, \overline{T}, \underline{O}, \overline{O}, \underline{R}, \overline{R}) \gets$ LearnCIs($h$)
+		\State $a \gets$ OptimisticPlanning($\underline{T}, \overline{T}, \underline{O}, \overline{O}, \underline{R}, \overline{R}, h$) \# Need $h$ to compute belief
+		\State $h \gets$ TakeAction($a$) \# Adds new action, observation, and reward to $h$
+		\EndWhile
+	\end{algorithmic}
+\end{frame}
+
+\begin{frame}
+\frametitle{Tractable Planning}
+\framesubtitle{Updating $\alpha$-vectors}
+\begin{algorithmic}
+	\State Input: belief $b$, set of existing $\alpha$-vectors $M$
+	\State $v \gets -\infty$
+	\For{$a \in A$}
+	\For{choice of $\alpha_z$ for each observation $z$} \# pick an element of $M^{|Z|}$
+	\State $\alpha_a \gets $ optimistic one-step policy evaluation of $a$ and $\alpha_z$
+	\If{$\sum_s b(s)\alpha_a(s) > v$}
+	\State $v \gets \sum_s b(s)\alpha_a(s)$
+	\State $a^* \gets a$
+	\EndIf
+	\EndFor
+	\EndFor
+	\State Output: $a^*$
+\end{algorithmic}
+\end{frame}
+
+\begin{frame}
+\frametitle{Theoretical PAC Analysis Outline}
+
+We will combine MoM with Optimistic PBVI.
+
+\begin{block}{Conditions}
+	\begin{itemize}
+		\item $T,O$ satisfy the conditions for MoM to work
+		\item almost no planning error - almost exact PBVI with infinite belief points
+		\item task is episodic - each episode is $H$ steps
+	\end{itemize}
+\end{block}
+
+\begin{block}{Key Idea}
+Use the same key idea as in the MDP case; in every episode, either the algorithm is $\epsilon$-close to optimal, or the algorithm has a high probability to explore.
+\end{block}
+
+\end{frame}
+
+\begin{frame}
+	\frametitle{Theoretical PAC Analysis Outline}
+	
+	\begin{block}{Proof Outline}
+		\begin{itemize}
+			\item MoM returns confidence intervals $O(1/\sqrt{n_a})$ over the parameters involving action $a$, where $n_a$ is the number of times the action has been tried
+			\item Due to optimism, if the algorithm doesn't choose to try an underused action, then it means that action is worse, and so the algorithm will have found parameters close enough to the true parameters that its policy is near optimal
+			\item Otherwise the algorithm does try to pick an underused action, which means the confidence intervals for that action shrink
+		\end{itemize}
+	\end{block}
+	
+\end{frame}
+
+\begin{frame}
+	\frametitle{Theoretical PAC Analysis Outline}
+	
+	With high probability, only this many mistakes:
+	
+	\begin{align*}
+	O\left(\frac{|S|^7|A|(T+H)V_{max}^3 \left(\frac{2}{\nu}\right)^{4H}}{\epsilon^3}\log\left(\frac{1}{\delta}\right)\right)
+	\end{align*}
+	
+	\begin{block}{Main Source of Mistakes}
+		Because we don't know the true parameters, we can't keep proper track of the belief state. The error in the belief state can grow exponentially with the length of the episode.
+	\end{block}
+	
+	\begin{block}{Not so great...}
+		If we used a simple approach of using histories as states, and then just use an MDP algorithm:
+			\begin{align*}
+			\tilde{O}\left( \frac{(|A||O|)^{2H}A\min(T,H)V_{max}}{\epsilon^3(1-\gamma)^4} \right)
+			\end{align*}
+	\end{block}
+	
+\end{frame}
+
+\begin{frame}
+	\frametitle{Experimental Results}
+	
+	We used EM with fake confidence intervals instead of MoM.
+	
+	\begin{block}{Two Room}
+		We made this simple domain to try to emphasize that optimism is sometimes necessary.
+		\begin{itemize}
+			\item 2 states -- left room -- right room
+			\item start in left room
+			\item 2 actions -- go left --- go right
+			\item 2 observations -- in left -- in right
+			\item want to keep going right, but hard (0.1 prob of going left to right)
+		\end{itemize}
+	\end{block}
+	
+\end{frame}
+
+\begin{frame}
+	\frametitle{Experimental Results}
+	
+	\begin{block}{Comparison to Bayesian Approach}
+		We compared to Finale's FFBS approach, which is a Bayesian approach on two room. The green line is ours. The red line is the online reward of FFBS. The light blue line is the catch trials of FFBS.
+	\end{block}
+	
+	\begin{figure}
+		\centering
+		\includegraphics[scale=0.3]{compare_ffbs_ct.png}
+	\end{figure}
+	
+\end{frame}
+
+\begin{frame}
+	\frametitle{Conclusion}
+	
+	\begin{block}{Main Contribution}
+		Alternative approach to Bayesian methods for learning, using optimism under uncertainty, which may do better in certain domains that require directed exploration.
+	\end{block}
+	
+	\begin{block}{Future Work}
+		\begin{itemize}
+			\item Work on the PAC proof and see if we can get tighter bounds
+			\item Run more experiments on more standard domains
+		\end{itemize}
+	\end{block}
+	
+\end{frame}
+
+%
+%\subsubsection*{References}
+%
+%[1] Alexander L. Strehl, Michael L. Littman, An analysis of model-based Interval Estimation for Markov Decision Processes, Journal of Computer and System Sciences, Volume 74, Issue 8, December 2008, Pages 1309-1331, ISSN 0022-0000, http://dx.doi.org/10.1016/j.jcss.2007.08.009.
+%
+%[2] Leslie Pack Kaelbling, Michael L. Littman, and Anthony R. Cassandra. 1998. Planning and acting in partially observable stochastic domains. Artif. Intell. 101, 1-2 (May 1998), 99-134. DOI=10.1016/S0004-3702(98)00023-X http://dx.doi.org/10.1016/S0004-3702(98)00023-X
+%
+%[3] Stéphane Ross , Joelle Pineau , Brahim Chaib-draa , Pierre Kreitmann, A Bayesian Approach for Learning and Planning in Partially Observable Markov Decision Processes, The Journal of Machine Learning Research, 12, p.1729-1770, 2/1/2011. http://www.cs.cmu.edu/~sross1/publications/Ross-JMLR11-BAPOMDP.pdf
+%
+%[4] P. Poupart and N. Vlassis. Model-based bayesian reinforcement learning in partially observable domains. In International Symposium on Artificial Intelligence and Mathematics (ISAIM), 2008.https://cs.uwaterloo.ca/~ppoupart/publications/bporl/isaim08-poupart.pdf
+%
+%[5] Masoumeh T. Izadi and Doina Precup.  Using Rewards for Belief State Updates in Partially Observable Markov Decision Processes.  Machine Learning: ECML 2005.  Lecture Notes in Computer Science Volume 3720, 2005, pp 593-600.  http://www.cs.mcgill.ca/~mtabae/ecml05.pdf
+%
+%[6] J. Pineau, G. Gordon, and S. Thrun. Point-based value iteration: an anytime algorithm for POMDPs. In International Symposium on Artificial Intelligence (IJCAI), pages 1025-1032, 2003.
+%
+%[7] Visser I, Raijmakers MEJ, Molenaar PCM (2000) Confidence intervals for hidden Markov model parameters. Br J Math Stat Psychol 53(2):17?327
+%
+%[8] E. Brunskill et al., POMDP Planning that is Robust to Model Uncertainty. Unpublished Tech Report.
+%
+%[9] Christos Papadimitriou and John N. Tsitsiklis. 1987. The complexity of Markov decision processes. Math. Oper. Res. 12, 3 (August 1987), 441-450. DOI=10.1287/moor.12.3.441 http://dx.doi.org/10.1287/moor.12.3.441
+
+
+\end{document}

@@ -203,6 +203,55 @@ V^A_M(b,T) - V^{\pi}_{M_{OPT}}(b,T) &\geq -V_{max}d_w -2V_{max}\epsilon_w + [V^A
 \end{align}
 now let's take a closer look at that difference conditioned on not escaping. If neither of them escape, then they are just acting in the known POMDP. They both use the exact same transition, observation, reward parameters, so their updates are going to be very similar. The only difference is that they are running in slightly different POMDPs.
 
+\section{Example of Approximate Belief Tracking}
+
+\subsection{Approximate Observations}
+
+Suppose we have a 3 state POMDP $s_0, s_1, s_2$ where $s_0$ is the starting state. Let the policy be fixed, so that we can talk about the single transition and observation matrices. Suppose we know the transition probabilities with no error. $s_0$ transitions to $s_1$ and $s_2$ each with uniform probability. $s_1$ transitions to itself deterministically, and $s_2$ transitions to itself deterministically. There are three observations. Starting in $s_0$ gives observation $z_0$. $s_1$ gives observation $z_1$ with probability $p_1$ and $z_2$ with prob $1-p_1$, and $s_2$ gives $z_1$ with probability $p_2$ and $z_2$ with prob $1-p_2$. So the idea is that the system transitions randomly to either $s_1$ or $s_2$ and stays in that state, getting observations that give it a little bit of information about which state it is actually in, governed by the probs $p_1,p_2$.
+
+Suppose $p_1 = 0.01$ and $p_2 = 0.02$. Suppose that we get a sequence of observations of just $z_1$. Then the belief will be updated to reflect that the more likely state is $s_2$. And this belief will continue to add more weight to $p_2$. However we may estimate those values to be off and instead think that $\hat{p}_1 = 0.02$ and $\hat{p}_2 = 0.01$. Now let's calculate just how much error there is for these two situations.
+
+The initial belief is of course $\langle 0.5, 0.5 \rangle$. The transition matrix is just the identity for these two states, so after applying it it is still $\langle 0.5, 0.5 \rangle$. However now we come to the observations. And they end up scaling it by $\langle \frac{p_1 b_1}{p_1 b_1 + p_2 b_2} , \frac{p_2 b_2}{p_1 b_1 + p_2 b_2} \rangle$. Suppose WLG that $b_1 \leq b_2$ and $p_1 \leq p_2$, then $p_1 b_1 \leq p_2 b_2$, and
+\begin{align}
+\frac{p_2 b_2}{p_1 b_1 + p_2 b_2} / \frac{p_1 b_1}{p_1 b_1 + p_2 b_2} &= \frac{p_2 b_2}{p_1 b_1} \\
+&= \left( \frac{p_2}{p_1} \right) \left( \frac{b_2}{b_1} \right)
+\end{align}
+so the ratio of the beliefs grows with a constant factor each iteration.
+
+So if the estimates are off, then that means the constant factor is off.
+
+\subsection{Quantifying additive and multiplicative differences}
+
+Suppose $b_1 + b_2 = 1$ are non-negative reals and you know that $\frac{b_2}{b_1} = c$. Then what's $|b_2 - b_1|$? Well we can just solve the two equations
+\begin{align}
+& & b_1 + cb_1 &= 1 \\
+\implies & & b_1 &= \frac{1}{1+c} \\
+\implies & & b_2 &= \frac{c}{1+c} \\
+\implies & & |b_2 - b_1 |  &= \frac{|1-c|}{1+c}
+\end{align}
+
+Note that $c$ and $\frac{1}{c}$ are symmetric cases.
+
+Now suppose we have another belief vector with a different constant ratio
+\begin{align}
+|b_1 - b_3| &= \left| \frac{1}{1+c} - \frac{1}{1+d}\right| \\
+&= \frac{|d-c|}{(1+c)(1+d)} \\
+&= \frac{\delta}{(1+c)(1+c+\delta)} \text{ assume $c \leq d$}\\
+&= \frac{1}{1+c} - \frac{1}{1+c+\delta}\\
+\text{So } \frac{1}{1+c} - \frac{1}{1+c+\delta} &\leq \epsilon\\
+\iff \delta &\leq \begin{cases}
+\frac{1}{\frac{1}{1+c}-\epsilon} - 1 - c & \epsilon < \frac{1}{1+c}\\
+\infty & \epsilon \geq \frac{1}{1+c}
+\end{cases}\\
+\text{So we want }  \frac{\delta}{(1+c)(1+c+\delta)} &\leq \epsilon\\
+\text{So a sufficient condition is } \frac{\delta}{(1+c)^2} &\leq \epsilon\\
+\Longleftarrow \delta &\leq (1+c)^2 \epsilon \\
+\Longleftarrow \delta &\leq \epsilon\\
+\text{What is a necessary condition?}
+\end{align}
+
+so we just need a small additive difference in the ratios. However that's the whole problem, since the ratios diverge multiplicatively.
+
 \section{Homing}
 
 It seems that we don't need to run in episodes over and over again like the original homing algorithm if we set in advance how close we want to be. First an outline of the algorithm
@@ -225,5 +274,40 @@ n &= \frac{C}{\epsilon_1^2} D^{2at} \\
 so to increase $t$ by one, you need exponentially more samples every time.
 
 On mixing time, there is an additional thing to note since the policy of the algorithm is nonstationary, so that means the POMDP is not reaching a stationary distribution, but we still need to show that belief tracking gets close to the true belief.
+
+\section{Other Approaches}
+
+\begin{itemize}
+	\item ROSS BAPOMDP
+	\begin{itemize}
+		\item
+	\end{itemize}
+	\item Finale
+	\begin{itemize}
+		\item Bayesian approach with particles
+		\item uses QMDP approx at the leaves of stochastic forward search for planning
+		\item can also use weighted\_stochastic, BOSS or BEB (but all perform similarly)
+		\item iPOMDP and FFBS both perform similarly, so let's compare to FFBS since it's faster
+		\item Finale graphs catch trials, which is not the online reward; we perform consistently better compared to the online reward on two-room and 2-sensor-tiger
+		\item Domains:
+	\end{itemize}
+	\item FIB for tighter than QMDP upper bounds
+	\item SARSOP, HVI, SOVI, PBVI and related for tighter lower bounds
+	\item $AO^\star$ for online searching of the expanded belief tree, with lower/upper bounds at the leafs using one of the other approaches
+	\item AEMS heuristic search
+	\item POMCP with some Monte Carlo sampling to help in the tree search
+	\item BAMCP for sampling BAMDP (not POMDPs?) - GRID5, GRID10, Double-loop, Dearden’s Maze domains
+	\item RTDP-Bel and SOVI do learning?
+	\item Policy search methods as well, like finite state controllers, or policy gradient methods
+\end{itemize}
+
+\begin{itemize}
+	\item Tag Pineau et al. (2003) with 870 states
+	\item RockSample Smith and Simmons (2004)
+	\item HallWay
+	\item Shuttle, 
+\end{itemize}
+
+What about Predictive State Representation (PSR)?
 
 \end{document}

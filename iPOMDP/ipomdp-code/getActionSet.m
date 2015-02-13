@@ -298,7 +298,7 @@ count = 0;
 for sample_index = 1:numel( sample_set )
     size( sample_set{ sample_index }.bel );
     size( sample_set{ sample_index }.nsa( : , a ) );
-    weight_set( sample_index )
+    weight_set( sample_index );
     count = count + weight_set( sample_index ) * ...
         sample_set{ sample_index }.bel' * sample_set{ sample_index }.nsa( : , a );
 end

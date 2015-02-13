@@ -9,20 +9,16 @@
 #include <cstdlib>
 #include <random>
 
-#ifndef TIGER_NUMACTIONS
-#define TIGER_NUMACTIONS 3
+#ifndef TNA
+#error TNA must be defined
 #endif
 
-#ifndef TIGER_NUMSTATES
-#define TIGER_NUMSTATES 2
+#ifndef TNS
+#error TNS must be defined
 #endif
 
-#ifndef TIGER_NUMOBS
-#define TIGER_NUMOBS 2
-#endif
-
-#ifndef NUM_BELIEFS
-#define NUM_BELIEFS 20
+#ifndef TNO
+#define TNO must be defined
 #endif
 
 using namespace std;
@@ -73,6 +69,25 @@ unsigned int sample_int(unsigned int a, unsigned int b)
     return num;
 }
 
+// sample from a discrete distribution
+template<class T>
+int sample_discrete(vector<T> probs)
+{
+    // assume the probs sum up to 1.0
+    double acc = 0.0;
+    double p = sample_unif();
+    for (size_t i = 0; i < probs.size(); ++i)
+    {
+        acc += probs[i];
+        if (p <= acc)
+        {
+            return i;
+        }
+    }
+    // maybe some underflow of the sum, so return the final one
+    return probs.size() - 1;
+}
+
 template<class T, class R>
 struct Tuple
 {
@@ -102,6 +117,9 @@ struct AVector
 template <class M, class T, class Z, class R>
 struct Planning
 {
+    // number of belief points to keep
+    int num_beliefs;
+    
     // a belief point will simply be a vector<double>
     vector<vector<double> > beliefs;
     vector<AVector> alphas;
@@ -112,15 +130,15 @@ struct Planning
     M &pomdp;
     
     // temporary variables for calculations
-    double t[TIGER_NUMSTATES][TIGER_NUMACTIONS][TIGER_NUMSTATES];
-    double z[TIGER_NUMSTATES][TIGER_NUMACTIONS][TIGER_NUMOBS];
+    double t[TNS][TNA][TNS];
+    double z[TNS][TNA][TNO];
     
     // keep track of the optimistic instantiation of the model
-    double opt_t[TIGER_NUMSTATES][TIGER_NUMACTIONS][TIGER_NUMSTATES];
-    double opt_z[TIGER_NUMSTATES][TIGER_NUMACTIONS][TIGER_NUMOBS];
+    double opt_t[TNS][TNA][TNS];
+    double opt_z[TNS][TNA][TNO];
     
-    Planning(M &pomdp_)
-    : pomdp(pomdp_)
+    Planning(M &pomdp_, int nbeliefs)
+    : num_beliefs(nbeliefs), pomdp(pomdp_)
     {
         //double init_alpha_val = pomdp.rmax/(1.0-pomdp.gamma);
         //double init_alpha_val = 0;
@@ -140,9 +158,8 @@ struct Planning
 
     void reset_curr_belief()
     {
-        curr_belief = vector<double>(pomdp.numstates, 0.5);
-        // curr_belief[0] = 1.0;
-        // curr_belief[1] = 0.0;
+        //curr_belief = vector<double>(pomdp.numstates, 0.5);
+        curr_belief = pomdp.start;
     }
     
     void reset_belief_points()
@@ -152,10 +169,10 @@ struct Planning
         assert(pomdp.numstates == 2);
         beliefs.clear();
         alphas.clear();
-        for (int i = 0; i <= NUM_BELIEFS; ++i)
+        for (int i = 0; i <= num_beliefs; ++i)
         {
             vector<double> tmp_b(pomdp.numstates, 0.0);
-            tmp_b[0] = static_cast<double>(i) / NUM_BELIEFS;
+            tmp_b[0] = static_cast<double>(i) / num_beliefs;
             tmp_b[1] = 1.0-tmp_b[0];
             beliefs.push_back(tmp_b);
             alphas.push_back(AVector());
@@ -250,6 +267,44 @@ struct Planning
         belief_update_step(last_obs, last_action, curr_belief, new_belief);
         curr_belief = new_belief;
     }
+    
+    // finds the best action for the current belief among the current alpha vectors
+    int find_best_action()
+    {
+        // at the same time, find the best new alpha vector and value for the current belief
+        double curr_v = -numeric_limits<double>::infinity();
+        int best_action = -1;
+        vector<int> best_actions(0, 0);
+        
+        for (size_t j = 0; j < alphas.size(); ++j)
+        {
+            // update for current belief
+            double tmp_v = dot(curr_belief, alphas[j].values);
+            if (tmp_v > curr_v)
+            {
+                curr_v = tmp_v;
+                best_actions.clear();
+                best_actions.push_back(alphas[j].action);
+            }
+            else if (tmp_v == curr_v) {
+                if (find(best_actions.begin(), best_actions.end(), alphas[j].action) == best_actions.end()) {
+                    best_actions.push_back(alphas[j].action);
+                }
+            }
+        }
+        
+        best_action = best_actions[sample_int(0, best_actions.size()-1)];
+        
+        // see what actions are actually there
+        if (0)
+        {
+            cout << "best actions ";
+            print_vector(best_actions);
+        }
+        
+        return best_action;
+    }
+    
     
     // optimistic belief point backup, and planning
     // this needs to iterate through all possible new alpha vectors
@@ -563,10 +618,10 @@ struct Planning
         print_vector(sorted);
         
         // make up CIs
-        double tm[TIGER_NUMSTATES][TIGER_NUMACTIONS][TIGER_NUMSTATES];
-        double tw[TIGER_NUMSTATES][TIGER_NUMACTIONS][TIGER_NUMSTATES];
-        double zm[TIGER_NUMSTATES][TIGER_NUMACTIONS][TIGER_NUMOBS];
-        double zw[TIGER_NUMSTATES][TIGER_NUMACTIONS][TIGER_NUMOBS];
+        double tm[TNS][TNA][TNS];
+        double tw[TNS][TNA][TNS];
+        double zm[TNS][TNA][TNO];
+        double zw[TNS][TNA][TNO];
         
         cout << "---------- Start ----------" << endl;
         print_points();
@@ -574,26 +629,26 @@ struct Planning
         for (int r = 0; r < 200; ++r)
         {
             // update confidence intervals
-            for (int i = 0; i < TIGER_NUMSTATES; ++i)
+            for (int i = 0; i < TNS; ++i)
             {
-                for (int j = 0; j < TIGER_NUMACTIONS; ++j)
+                for (int j = 0; j < TNA; ++j)
                 {
-                    for (int k = 0; k < TIGER_NUMSTATES; ++k)
+                    for (int k = 0; k < TNS; ++k)
                     {
-                        //tm[i][j][k] = 1.0 / TIGER_NUMSTATES;
+                        //tm[i][j][k] = 1.0 / TNS;
                         tm[i][j][k] = pomdp.t[i][j][k];
                         tw[i][j][k] = 1.0/sqrt(r);
                         //tw[i][j][k] = 0.1;
                     }
                 }
             }
-            for (int i = 0; i < TIGER_NUMSTATES; ++i)
+            for (int i = 0; i < TNS; ++i)
             {
-                for (int j = 0; j < TIGER_NUMACTIONS; ++j)
+                for (int j = 0; j < TNA; ++j)
                 {
-                    for (int k = 0; k < TIGER_NUMOBS; ++k)
+                    for (int k = 0; k < TNO; ++k)
                     {
-                        //zm[i][j][k] = 1.0 / TIGER_NUMOBS;
+                        //zm[i][j][k] = 1.0 / TNO;
                         zm[i][j][k] = pomdp.o[i][j][k];
                         zw[i][j][k] = 1.0/sqrt(r);
                         //zw[i][j][k] = 0.1;
@@ -614,11 +669,11 @@ struct Planning
             belief_update();
             
             cout << "opt T" << endl;
-            for (int i = 0; i < TIGER_NUMSTATES; ++i)
+            for (int i = 0; i < TNS; ++i)
             {
-                for (int j = 0; j < TIGER_NUMACTIONS; ++j)
+                for (int j = 0; j < TNA; ++j)
                 {
-                    for (int k = 0; k < TIGER_NUMSTATES; ++k)
+                    for (int k = 0; k < TNS; ++k)
                     {
                         cout << opt_t[i][j][k] << " ";
                     }
@@ -627,11 +682,11 @@ struct Planning
                 cout << endl;
             }
             cout << "opt Z" << endl;
-            for (int i = 0; i < TIGER_NUMSTATES; ++i)
+            for (int i = 0; i < TNS; ++i)
             {
-                for (int j = 0; j < TIGER_NUMACTIONS; ++j)
+                for (int j = 0; j < TNA; ++j)
                 {
-                    for (int k = 0; k < TIGER_NUMOBS; ++k)
+                    for (int k = 0; k < TNO; ++k)
                     {
                         cout << opt_z[i][j][k] << " ";
                     }
