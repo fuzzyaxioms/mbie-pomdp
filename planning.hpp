@@ -8,22 +8,12 @@
 #include <algorithm>
 #include <cstdlib>
 #include <random>
-
-#ifndef TNA
-#error TNA must be defined
-#endif
-
-#ifndef TNS
-#error TNS must be defined
-#endif
-
-#ifndef TNO
-#define TNO must be defined
-#endif
+#include <armadillo>
 
 using namespace std;
+using namespace arma;
 
-mt19937 random_engine;
+mt19937 default_rand;
 
 template<class T>
 void print_vector(vector<T> const &vec)
@@ -45,27 +35,22 @@ void print_array(T const &arr, int length)
     cout << endl;
 }
 
-void sample_seed(unsigned int s)
+void seed_default_rand(unsigned int s)
 {
-    random_engine.seed(s);
-}
-
-unsigned int sample_rand()
-{
-    return random_engine();
+    default_rand.seed(s);
 }
 
 double sample_unif()
 {
-    static_assert(random_engine.min() == 0, "Error");
-    return static_cast<double>(random_engine()) / random_engine.max();
+    static_assert(default_rand.min() == 0, "Error");
+    return static_cast<double>(default_rand()) / default_rand.max();
 }
 
 unsigned int sample_int(unsigned int a, unsigned int b)
 {
-    static_assert(random_engine.min() == 0, "Error");
-    unsigned int num = static_cast<unsigned int>(ceil(sample_unif()*(b - a + 1))) + a - 1;
-    // static_assert(a <= num <= b);
+    static_assert(default_rand.min() == 0, "Error");
+    unsigned int num = static_cast<unsigned int>(round(sample_unif()*(b - a))) + a;
+    assert(a <= num && num <= b);
     return num;
 }
 
@@ -114,7 +99,7 @@ struct AVector
 // T - T[][][] transition matrix
 // Z - Z[][][] observation matrix
 // R - R[][] expected reward matrix
-template <class M, class T, class Z, class R>
+template <class M>
 struct Planning
 {
     // number of belief points to keep
@@ -130,15 +115,19 @@ struct Planning
     M &pomdp;
     
     // temporary variables for calculations
-    double t[TNS][TNA][TNS];
-    double z[TNS][TNA][TNO];
+	cube tmp_t;
+	cube tmp_z;
     
     // keep track of the optimistic instantiation of the model
-    double opt_t[TNS][TNA][TNS];
-    double opt_z[TNS][TNA][TNO];
+    cube opt_t;
+	cube opt_z;
     
     Planning(M &pomdp_, int nbeliefs)
-    : num_beliefs(nbeliefs), pomdp(pomdp_)
+    : num_beliefs(nbeliefs), pomdp(pomdp_),
+	  tmp_t(pomdp_.numstates, pomdp_.numactions, pomdp_.numstates),
+	  opt_t(pomdp_.numstates, pomdp_.numactions, pomdp_.numstates),
+	  tmp_z(pomdp_.numstates, pomdp_.numactions, pomdp_.numobs),
+	  opt_z(pomdp_.numstates, pomdp_.numactions, pomdp_.numobs)
     {
         //double init_alpha_val = pomdp.rmax/(1.0-pomdp.gamma);
         //double init_alpha_val = 0;
@@ -150,11 +139,6 @@ struct Planning
         // current belief is uniform
         reset_curr_belief();
     }
-    
-    // void reset_curr_belief()
-    // {
-    //     curr_belief = vector<double>(pomdp.numstates, 1.0/pomdp.numstates);
-    // }
 
     void reset_curr_belief()
     {
@@ -193,14 +177,13 @@ struct Planning
             double new_b = 0.0;
             for (size_t j = 0; j < src_belief.size(); ++j)
             {
-                //cout << "*****j=" << j << " " << opt_t[j][last_action][i] << endl;
-                new_b += src_belief[j]*opt_t[j][last_action][i];
+                new_b += src_belief[j]*opt_t(j,last_action,i);
             }
             if (new_b <= pow(10, -200))
             {
                 new_b = 0.0;
             }
-            dst_belief[i] = opt_z[i][last_action][last_obs]*new_b;
+            dst_belief[i] = opt_z(i,last_action,last_obs)*new_b;
             b_sum += dst_belief[i];
         }
         // cout << b_sum << endl;
@@ -269,7 +252,8 @@ struct Planning
     }
     
     // finds the best action for the current belief among the current alpha vectors
-    int find_best_action()
+    // also returns the computed expected value
+    tuple<int, double> find_best_action()
     {
         // at the same time, find the best new alpha vector and value for the current belief
         double curr_v = -numeric_limits<double>::infinity();
@@ -302,7 +286,7 @@ struct Planning
             print_vector(best_actions);
         }
         
-        return best_action;
+        return make_tuple(best_action,curr_v);
     }
     
     
@@ -311,6 +295,7 @@ struct Planning
     // finds the best new alpha for all belief points
     // also finds best action for current belief, and the associated optimistic instantiation
     // so need to assume we have already updated beliefs
+	template <class T, class Z, class R>
     int backup_plan_step(T const &tm, T const &tw, Z const &zm, Z const &zw, R const &er, bool update_opt=false)
     {
         // keep track of the best values for each belief point
@@ -398,6 +383,7 @@ struct Planning
     // optimistic belief point backup, and planning
     // returns the best action to do
     // does the backup step many times
+	template <class T, class Z, class R>
     int backup_plan(T const &tm, T const &tw, Z const &zm, Z const &zw, R const &er, bool reset=false, int iters=1)
     {
         if (reset)
@@ -417,6 +403,7 @@ struct Planning
     // given the means and widths of the confidence intervals
     // return a new alpha vector's values
     // also fills in an optimistic instantiation of the model
+	template <class T, class Z, class R>
     void policy_eval(int action, vector<int> const& combo, vector<double> &values, T const &tm, T const &tw, Z const &zm, Z const &zw, R const &er)
     {
         // maximization over observations
@@ -429,10 +416,9 @@ struct Planning
             // initialize the real values to lower bounds first
             for (int j = 0; j < pomdp.numobs; ++j)
             {
-                z[i][action][j] = max(zm[i][action][j] - zw[i][action][j], 0.0);
+                tmp_z(i,action,j) = max(zm[i][action][j] - zw[i][action][j], 0.0);
             }
             // << "Lower bounds for action = " << action << " and s' = " << i << endl;
-            // print_array(z[i][action], pomdp.numobs);
             // get the alpha_z(s')s over z
             vector<double> zs(pomdp.numobs, 0);
             for (int j = 0; j < pomdp.numobs; ++j)
@@ -450,7 +436,7 @@ struct Planning
                 double sum_obs = 0.0;
                 for (int j = 0; j < pomdp.numobs; ++j)
                 {
-                    sum_obs += z[i][action][j];
+                    sum_obs += tmp_z(i,action,j);
                 }
                 // if allocated all probs, then stop
                 if (sum_obs >= 1.0)
@@ -458,14 +444,14 @@ struct Planning
                     break;
                 }
                 // otherwise, allocate as much as we can
-                double gap = zm[i][action][curr_obs] + zw[i][action][curr_obs] - z[i][action][curr_obs];
-                z[i][action][curr_obs] += min(1-sum_obs, gap);
+                double gap = zm[i][action][curr_obs] + zw[i][action][curr_obs] - tmp_z(i,action,curr_obs);
+                tmp_z(i,action,curr_obs) += min(1-sum_obs, gap);
             }
             // calculate the dot product
             for (int j = 0; j < pomdp.numobs; ++j)
             {
                 // keep updating the alpha vector
-                tilde[i] += z[i][action][j] * alphas[combo[j]].values[i];
+                tilde[i] += tmp_z(i,action,j) * alphas[combo[j]].values[i];
             }
         }
         
@@ -476,7 +462,7 @@ struct Planning
             // initialize the real values to lower bounds first
             for (int j = 0; j < pomdp.numstates; ++j)
             {
-                t[i][action][j] = max(tm[i][action][j] - tw[i][action][j], 0.0);
+                tmp_t(i,action,j) = max(tm[i][action][j] - tw[i][action][j], 0.0);
             }
             // get the order of the states such that tilde is in ascending order
             vector<int> sorted(pomdp.numstates, 0);
@@ -489,7 +475,7 @@ struct Planning
                 double sum_tran = 0.0;
                 for (int j = 0; j < pomdp.numstates; ++j)
                 {
-                    sum_tran += t[i][action][j];
+                    sum_tran += tmp_t(i,action,j);
                 }
                 // if allocated all probs, then stop
                 if (sum_tran >= 1.0)
@@ -497,14 +483,14 @@ struct Planning
                     break;
                 }
                 // otherwise, allocate as much as we can
-                double gap = tm[i][action][curr_state] + tw[i][action][curr_state] - t[i][action][curr_state];
-                t[i][action][curr_state] += min(1-sum_tran, gap);
+                double gap = tm[i][action][curr_state] + tw[i][action][curr_state] - tmp_t(i,action,curr_state);
+                tmp_t(i,action,curr_state) += min(1-sum_tran, gap);
             }
             // keep updating the alpha vector
             values[i] = 0.0;
             for (int j = 0; j < pomdp.numstates; ++j)
             {
-                values[i] += t[i][action][j] * tilde[j];
+                values[i] += tmp_t(i,action,j) * tilde[j];
             }
         }
         
@@ -519,20 +505,8 @@ struct Planning
     // transfers the t,z to opt_t and opt_z
     void transfer_opt()
     {
-        for (int i = 0; i < pomdp.numstates; ++i)
-        {
-            for (int j = 0; j < pomdp.numactions; ++j)
-            {
-                for (int k = 0; k < pomdp.numstates; ++k)
-                {
-                    opt_t[i][j][k] = t[i][j][k];
-                }
-                for (int k = 0; k < pomdp.numobs; ++k)
-                {
-                    opt_z[i][j][k] = z[i][j][k];
-                }
-            }
-        }
+		opt_t = tmp_t;
+        opt_z = tmp_z;
     }
     
     // helper function
@@ -593,112 +567,6 @@ struct Planning
             cout << "-- action " << alphas[i].action << " -- ";
             print_vector(alphas[i].values);
         }
-    }
-    
-    // for debugging and testing correctness
-    void test()
-    {
-        vector<int> a(3,0);
-        for (int i = 0; i < 10; ++i)
-        {
-            print_vector(a);
-            next_combination(a, 3);
-        }
-        
-        cout << -numeric_limits<double>::infinity() << endl;
-        
-        vector<double> vals;
-        vals.push_back(1);
-        vals.push_back(3);
-        vals.push_back(4);
-        vals.push_back(2);
-        vector<int> sorted(vals.size(), 0);
-        isort(vals, sorted);
-        cout << "Sorted: ";
-        print_vector(sorted);
-        
-        // make up CIs
-        double tm[TNS][TNA][TNS];
-        double tw[TNS][TNA][TNS];
-        double zm[TNS][TNA][TNO];
-        double zw[TNS][TNA][TNO];
-        
-        cout << "---------- Start ----------" << endl;
-        print_points();
-        
-        for (int r = 0; r < 200; ++r)
-        {
-            // update confidence intervals
-            for (int i = 0; i < TNS; ++i)
-            {
-                for (int j = 0; j < TNA; ++j)
-                {
-                    for (int k = 0; k < TNS; ++k)
-                    {
-                        //tm[i][j][k] = 1.0 / TNS;
-                        tm[i][j][k] = pomdp.t[i][j][k];
-                        tw[i][j][k] = 1.0/sqrt(r);
-                        //tw[i][j][k] = 0.1;
-                    }
-                }
-            }
-            for (int i = 0; i < TNS; ++i)
-            {
-                for (int j = 0; j < TNA; ++j)
-                {
-                    for (int k = 0; k < TNO; ++k)
-                    {
-                        //zm[i][j][k] = 1.0 / TNO;
-                        zm[i][j][k] = pomdp.o[i][j][k];
-                        zw[i][j][k] = 1.0/sqrt(r);
-                        //zw[i][j][k] = 0.1;
-                    }
-                }
-            }
-            
-            cout << "---------- Iteration " << r+1 << " ----------" << endl;
-            cout << "Curr Belief -- ";
-            print_vector(curr_belief);
-            int next_action = backup_plan(tm, tw, zm, zw);
-            cout << "next action: " << next_action << endl;
-            
-            // advance the pomdp
-            pomdp.step(next_action);
-            
-            // update beliefs
-            belief_update();
-            
-            cout << "opt T" << endl;
-            for (int i = 0; i < TNS; ++i)
-            {
-                for (int j = 0; j < TNA; ++j)
-                {
-                    for (int k = 0; k < TNS; ++k)
-                    {
-                        cout << opt_t[i][j][k] << " ";
-                    }
-                    cout << "| ";
-                }
-                cout << endl;
-            }
-            cout << "opt Z" << endl;
-            for (int i = 0; i < TNS; ++i)
-            {
-                for (int j = 0; j < TNA; ++j)
-                {
-                    for (int k = 0; k < TNO; ++k)
-                    {
-                        cout << opt_z[i][j][k] << " ";
-                    }
-                    cout << "|";
-                }
-                cout << endl;
-            }
-            
-            print_points();
-        }
-        // cout << "Rewards" << endl;
-        // print_vector(pomdp.rewards);
     }
 };
 

@@ -17,7 +17,10 @@
 #define EST_O true
 #define EST_RO (EM_USE_RO and true)
 #define EST_R true
-#define EM_CI_SCALE (0.1)
+#define EM_CI_SCALE 0.1
+
+#define TO_STRING_HELPER(x) #x
+#define TO_STRING(x) TO_STRING_HELPER(x)
 
 #if 0
 #define POMDP POMDP_OneArm
@@ -64,6 +67,7 @@
 #endif
 
 #include "planning.hpp"
+#include "sampling.hpp"
 #include "mom.cpp"
 
 using namespace std;
@@ -112,6 +116,20 @@ void print_matrix(T const (&arr)[A][B][C])
             for (size_t z = 0; z < C; ++z)
             {
                 cout << x << "," << y << "," << z << " | " << fixed << setw(9) << arr[x][y][z] << endl;
+            }
+        }
+    }
+}
+
+void print_matrix(cube const &arr)
+{
+    for (size_t x = 0; x < arr.n_rows; ++x)
+    {
+        for (size_t y = 0; y < arr.n_cols; ++y)
+        {
+            for (size_t z = 0; z < arr.n_slices; ++z)
+            {
+                cout << x << "," << y << "," << z << " | " << fixed << setw(9) << arr(x,y,z) << endl;
             }
         }
     }
@@ -1373,6 +1391,8 @@ struct POMDP_Shuttle
 // initialize all parameters
 void initialize(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&est_o)[TNS][TNA][TNO], double (&est_ro)[TNS][TNA][TNR])
 {
+	exponential_distribution<> exp_dist;
+	
     // completely random initialization
     for (int i = 0; i < TNS; ++i)
     {
@@ -1381,8 +1401,8 @@ void initialize(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&est_o)[TN
             double total = 0;
             for (int k = 0; k < TNS; ++k)
             {
-                double p = sample_unif() + 0.0000000001;
-                //double p = sample_gamma() + 0.0000000001;
+                //double p = sample_unif() + 0.0000000001;
+                double p = exp_dist(default_rand) + 0.0000000001;
                 //double p = 1.0;
                 est_t[i][j][k] = p;
                 total += p;
@@ -1394,8 +1414,8 @@ void initialize(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&est_o)[TN
             total = 0;
             for (int k = 0; k < TNO; ++k)
             {
-                double p = sample_unif() + 0.0000000001;
-                //double p = sample_gamma() + 0.0000000001;
+                //double p = sample_unif() + 0.0000000001;
+                double p = exp_dist(default_rand) + 0.0000000001;
                 //double p = 1.0;
                 est_o[i][j][k] = p;
                 total += p;
@@ -1408,8 +1428,8 @@ void initialize(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&est_o)[TN
             total = 0;
             for (int k = 0; k < TNR; ++k)
             {
-                double p = sample_unif() + 0.0000000001;
-                //double p = sample_gamma() + 0.0000000001;
+                //double p = sample_unif() + 0.0000000001;
+                double p = exp_dist(default_rand) + 0.0000000001;
                 //double p = 1.0;
                 est_ro[i][j][k] = p;
                 total += p;
@@ -1478,9 +1498,10 @@ void initialize(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&est_o)[TN
 double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA][TNS], double (&est_o)[TNS][TNA][TNO], double (&err_o)[TNS][TNA][TNO], double (&est_ro)[TNS][TNA][TNR], double (&err_ro)[TNS][TNA][TNR], double (&est_r)[TNS][TNA], double (&opt_r)[TNS][TNA], double scale_t = 1.0, double scale_o = 1.0, double scale_ro = 1.0, double scale_r = 1.0)
 {
     
-    double pi [2] = {0.5, 0.5};
+    vector<double> pi = pomdp.start;
     
     const int num_iters = 400;
+    const double iter_diff_threshold = 0.00001;
     for (int iters = 0; iters < num_iters; ++iters)
     {
 
@@ -1528,7 +1549,7 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
         }
 
         for (int epi = 0; epi < pomdp.actions.size(); ++epi)
-        {   
+        {
             // the number of time steps that have occurred
             // the indices go from 0 to T-1
 
@@ -1758,7 +1779,16 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
         double const confidence_alpha = 0.99;
         // scaling for the confidence intervals
         double const ci_uniform_scale = EM_CI_SCALE;
- 
+        
+        // keep track of previous estimates to diff with new estimates
+        double prev_est_t[TNS][TNA][TNS];
+        double prev_est_o[TNS][TNA][TNO];
+        double prev_est_ro[TNS][TNA][TNR];
+        copy_matrix(est_t, prev_est_t);
+        copy_matrix(est_o, prev_est_o);
+        copy_matrix(est_ro, prev_est_ro);
+        double max_linf_diff = 0.0;
+        
         if (EST_T)
         {
             // now it's easy to compute the estimated probs using the sum variables above
@@ -1992,6 +2022,16 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
             cout << "printing out gamma action sum" << endl;
             print_matrix(gamma_action_sum);
         }
+        
+        // exit if the linf between iterations is small
+        max_linf_diff = max(max_linf_diff, linf_dist(prev_est_t, est_t));
+        max_linf_diff = max(max_linf_diff, linf_dist(prev_est_o, est_o));
+        max_linf_diff = max(max_linf_diff, linf_dist(prev_est_ro, est_ro));
+        if (max_linf_diff <= iter_diff_threshold)
+        {
+            //cout << "EM iters: " << iters << endl;
+            break;
+        }
     }
     
     // for debugging
@@ -2188,7 +2228,7 @@ void test_random()
 void find_planning_params(int num_beliefs)
 {
     POMDP pomdp;
-    Planning<POMDP,double[TNS][TNA][TNS],double[TNS][TNA][TNO],double[TNS][TNA]> plan(pomdp, num_beliefs);
+    Planning<POMDP> plan(pomdp, num_beliefs);
     
     double est_t[TNS][TNA][TNS];
     double err_t[TNS][TNA][TNS];
@@ -2246,7 +2286,7 @@ void find_planning_params(int num_beliefs)
     assert (next_action >= 0);
     plan.print_points();
     cout << "Opt T\n";
-    print_matrix(plan.opt_t);
+	print_matrix(plan.opt_t);
     cout << "Opt Z\n";
     print_matrix(plan.opt_z);
      cout << "Opt R\n";
@@ -2436,21 +2476,30 @@ void find_planning_params(int num_beliefs)
 // }
 #endif
 
+void test_sampling()
+{
+    int n = 10;
+    for (int i = 0; i < 10; ++i)
+    {
+        vector<int> permutation;
+        sample_permutation(n, permutation);
+        print_vector(permutation);
+    }
+}
+
 void test_optimal_planning(int num_beliefs, string const &reward_out, string const &cumreward_out, string const &actions_out)
 {
     unsigned initial_seed = 745898798;
     //unsigned initial_seed = time(0);
     
     // generate a bunch of seeds, one for each rep
-    sample_seed(initial_seed);
-
-    vector<unsigned> seeds;
-    for (int i = 0; i < 1; ++i)
-    {
-        seeds.push_back(sample_rand());
-    }
+	seed_seq sseq = {initial_seed};
+	
+	const unsigned num_seeds = 1;
+    vector<unsigned> seeds(num_seeds);
+	sseq.generate(seeds.begin(), seeds.end());
     
-    int reps = seeds.size();
+    int reps = num_seeds;
     int at_least_eps = 2000; // no limit on how many total eps
     int max_steps_per_ep = 50;
     int steps = max_steps_per_ep * at_least_eps; // this is the only limit, which is on number of steps; this is to be the same as Finale's ocde
@@ -2489,7 +2538,7 @@ void test_optimal_planning(int num_beliefs, string const &reward_out, string con
         }
     
         unsigned seed = seeds.at(rep);
-        sample_seed(seed);
+        seed_default_rand(seed);
         cout << "---- Start rep " << rep << endl;
         cout << "seed " << seed << endl;
         rept = clock();
@@ -2501,7 +2550,7 @@ void test_optimal_planning(int num_beliefs, string const &reward_out, string con
         
         // curr_ep += 1;
         // pomdp.new_episode();
-        Planning<POMDP,double[TNS][TNA][TNS],double[TNS][TNA][TNO],double[TNS][TNA]> plan(pomdp, num_beliefs);
+        Planning<POMDP> plan(pomdp, num_beliefs);
         for (int iter = 0; iter < steps; iter++) {
             ++curr_ep_step;
             ++curr_step;
@@ -2510,6 +2559,7 @@ void test_optimal_planning(int num_beliefs, string const &reward_out, string con
             //print_vector(plan.curr_belief);
             // t = clock();
             int next_action = -1;
+            double next_action_value = 0.0;
 
             // ######################### 
             // Use this when we want to model the optimal policy.
@@ -2520,7 +2570,7 @@ void test_optimal_planning(int num_beliefs, string const &reward_out, string con
              else
              {
                  //next_action = plan.backup_plan(pomdp.t, err_t, pomdp.o, err_o, pomdp.r, false, 1);
-                 next_action = plan.find_best_action();
+                tie(next_action, next_action_value) = plan.find_best_action();
              }
             // ##########################
             assert (next_action >= 0 and next_action < TNA);
@@ -2676,32 +2726,34 @@ void test_optimal_planning(int num_beliefs, string const &reward_out, string con
     cout << "Per step reward " << sum_rewards/reps/steps << endl;
 }
 
-
-void test_opt(bool use_opt, bool use_mom, int num_beliefs, string const &reward_out, string const &cumreward_out, string const &actions_out, double decay = -1)
+void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, string const &reward_out, string const &cumreward_out, string const &actions_out, double decay = -1)
 {
     unsigned initial_seed = 745898798;
     //unsigned initial_seed = time(0);
     
     // generate a bunch of seeds, one for each rep
-    sample_seed(initial_seed);
-
-    vector<unsigned> seeds;
+	seed_seq sseq = {initial_seed};
+	
+	const unsigned num_seeds = 20;
+    vector<unsigned> seeds(num_seeds);
     // seeds.push_back(3303811027);
     // seeds.push_back(1610352249);
-    //seeds.push_back(1610352249);
-    for (int i = 0; i < 20; ++i)
-    {
-        seeds.push_back(sample_rand());
-    }
+    //seeds.push_back(1611917390);
     //seeds.push_back(2546248239);
+	sseq.generate(seeds.begin(), seeds.end());
+	// seeds[0] = 467275708;
     
-    int reps = seeds.size();
+    int reps = num_seeds;
     int at_least_eps = 50; // no limit on how many total eps
     int max_steps_per_ep = 50;
     int steps = max_steps_per_ep * at_least_eps; // this is the only limit, which is on number of steps; this is to be the same as Finale's ocde
     double sum_rewards = 0;
     double prev_sum = 0;
     int nrandtriples = 0;
+	
+	// stats for when sampling extreme points is better than true model
+	unsigned num_model_updates = 0;
+	unsigned num_opt_samples = 0;
 
     // number of EM random restarts
     int restarts = 10;
@@ -2716,9 +2768,13 @@ void test_opt(bool use_opt, bool use_mom, int num_beliefs, string const &reward_
     
     double est_t[TNS][TNA][TNS];
     double err_t[TNS][TNA][TNS];
+    double zero_t[TNS][TNA][TNS];
+    zero_out(zero_t);
     
     double est_o[TNS][TNA][TNO];
     double err_o[TNS][TNA][TNO];
+    double zero_o[TNS][TNA][TNO];
+    zero_out(zero_o);
     
     double est_ro[TNS][TNA][TNR];
     double err_ro[TNS][TNA][TNR];
@@ -2762,7 +2818,7 @@ void test_opt(bool use_opt, bool use_mom, int num_beliefs, string const &reward_
         bool mom_updated[2] = {false, false};
     
         unsigned seed = seeds.at(rep);
-        sample_seed(seed);
+        seed_default_rand(seed);
         cout << "---- Start rep " << rep << endl;
         cout << "seed " << seed << endl;
         rept = clock();
@@ -2825,7 +2881,9 @@ void test_opt(bool use_opt, bool use_mom, int num_beliefs, string const &reward_
         // curr_ep += 1;
         // pomdp.new_episode();
         initialize(pomdp, est_t, est_o, est_ro);
-        Planning<POMDP,double[TNS][TNA][TNS],double[TNS][TNA][TNO],double[TNS][TNA]> plan(pomdp, num_beliefs);
+        Planning<POMDP> plan(pomdp, num_beliefs);
+        // for the dummy plan, the belief is never updated, only use beginning belief
+        Planning<POMDP> dummy_plan(pomdp, num_beliefs);
         for (int iter = 0; iter < steps; iter++) {
             ++curr_ep_step;
             ++curr_step;
@@ -2842,6 +2900,7 @@ void test_opt(bool use_opt, bool use_mom, int num_beliefs, string const &reward_
                 copy_matrix(est_r, opt_r);
             }
             int next_action = -1;
+            double next_action_val = 0.0;
 
             // ######################### 
             // Use this when we want to model the optimal policy.
@@ -2857,7 +2916,62 @@ void test_opt(bool use_opt, bool use_mom, int num_beliefs, string const &reward_
 
             if (model_updated)
             {
-                next_action = plan.backup_plan(est_t, err_t, est_o, err_o, opt_r, true, 40);
+                if (not use_sampling)
+                {
+                    next_action = plan.backup_plan(est_t, err_t, est_o, err_o, opt_r, true, 40);
+                }
+                else
+                {
+                    const int nextremes = 20;
+                    double curr_best_value = -numeric_limits<double>::infinity();
+                    double best_extreme_t[TNS][TNA][TNS];
+                    double best_extreme_o[TNS][TNA][TNO];
+                    
+                    dummy_plan.curr_belief = plan.curr_belief;
+                    
+					int dummy_action = -1;
+                    double dummy_value = -numeric_limits<double>::infinity();
+					
+					// compute true values
+					dummy_plan.backup_plan(pomdp.t, zero_t, pomdp.o, zero_o, opt_r, true, 40);
+					tie(dummy_action, dummy_value) = dummy_plan.find_best_action();
+					double true_v = dummy_value;
+					
+                    for (int ex_s = 0; ex_s < nextremes; ++ex_s)
+                    {
+                        double extreme_t[TNS][TNA][TNS];
+                        double extreme_o[TNS][TNA][TNO];
+                        
+                        
+                        sample_extremes(est_t, err_t, extreme_t);
+                        sample_extremes(est_o, err_o, extreme_o);
+                        
+                        dummy_plan.backup_plan(extreme_t, zero_t, extreme_o, zero_o, opt_r, true, 40);
+                        tie(dummy_action, dummy_value) = dummy_plan.find_best_action();
+                        
+                        if (dummy_value > curr_best_value)
+                        {
+                            copy_matrix(extreme_t, best_extreme_t);
+                            copy_matrix(extreme_o, best_extreme_o);
+                            curr_best_value = dummy_value;
+                        }
+                    }
+                    
+					++num_model_updates;
+					if (curr_best_value >= true_v - 0.00001)
+					{
+						++num_opt_samples;
+					}
+					
+                    // use the best model
+                    next_action = plan.backup_plan(best_extreme_t, zero_t, best_extreme_o, zero_o, opt_r, true, 40);
+					
+					if (false)
+					{
+						cout << "true_v:" << true_v << " sampled_v: " << curr_best_value << " is bigger " << (curr_best_value >= true_v - 0.00001) << endl;
+					}
+                }
+                
                 model_updated = false;
                 // cout << "estimated obs" << endl;
                 // print_both(est_o, err_o);
@@ -2865,15 +2979,18 @@ void test_opt(bool use_opt, bool use_mom, int num_beliefs, string const &reward_
                 mom_updated[1] = false;
                 //plan.print_points();
                 
-                //if (iter % 1000 == 1)
+                // if (iter % 100 == 0 and iter > 0)
                 if (false)
                 {
-                    cout << "---------- Iteration " << iter+1 << " ----------" << endl;
+                    // look at the estimated and planning derived optimistic parameters
+                    cout << "---------- Iteration " << iter << " ----------" << endl;
+                    // cout << "Log likelihood: " << best_ll << endl;
+                    // cout << "True Log likelihood: " << likelihood(pomdp, pomdp.o, pomdp.t) << endl;
                     cout << "model updated" << endl;
                     cout << "esimated transitions" << endl;
                     print_both(est_t, err_t);
                     cout << "opt t" << endl;
-                    print_matrix(plan.opt_t);
+					print_matrix(plan.opt_t);
                     cout << "estimated obs" << endl;
                     print_both(est_o, err_o);
                     cout << "opt z" << endl;
@@ -2884,15 +3001,56 @@ void test_opt(bool use_opt, bool use_mom, int num_beliefs, string const &reward_
                     print_both(est_r, opt_r);
                 }
                 
-                //cout << "opt t" << endl;
-                //print_matrix(plan.opt_t);
-                //cout << "opt z" << endl;
-                //print_matrix(plan.opt_z);
+                //if (iter % 200 == 1)
+                if (false)
+                {
+                    // testing out sampling extreme points and comparing it
+                    // sample some extreme points and see how their values compare
+                    const int nextremes = 20;
+                    double extreme_t[TNS][TNA][TNS];
+                    double extreme_o[TNS][TNA][TNO];
+                    
+                    cout << "---------- Iteration " << iter << " ----------" << endl;
+                    int dummy_action = -1;
+                    double dummy_value = 0.0;
+                    dummy_plan.curr_belief = plan.curr_belief;
+                    
+                    dummy_plan.backup_plan(est_t, err_t, est_o, err_o, opt_r, true, 40);
+                    tie(dummy_action, dummy_value) = dummy_plan.find_best_action();
+                    cout << "optimistic value " << dummy_value << "\n";
+                    
+                    dummy_plan.backup_plan(pomdp.t, zero_t, pomdp.o, zero_o, opt_r, true, 40);
+                    tie(dummy_action, dummy_value) = dummy_plan.find_best_action();
+                    cout << "actual value (w/ opt_r) " << dummy_value << "\n";
+                    
+                    dummy_plan.backup_plan(pomdp.t, zero_t, pomdp.o, zero_o, pomdp.r, true, 40);
+                    tie(dummy_action, dummy_value) = dummy_plan.find_best_action();
+                    cout << "actual value (w/o opt_r) " << dummy_value << "\n";
+                    
+                    for (int ex_s = 0; ex_s < nextremes; ++ex_s)
+                    {
+                        sample_extremes(est_t, err_t, extreme_t);
+                        sample_extremes(est_o, err_o, extreme_o);
+                        
+                        //cout << "extreme points sampled" << endl;
+                        //cout << "esimated transitions" << endl;
+                        //print_both(est_t, err_t);
+                        //cout << "extreme t" << endl;
+                        //print_matrix(extreme_t);
+                        //cout << "estimated obs" << endl;
+                        //print_both(est_o, err_o);
+                        //cout << "extreme o" << endl;
+                        //print_matrix(extreme_o);
+                        dummy_plan.backup_plan(extreme_t, zero_t, extreme_o, zero_o, opt_r, true, 40);
+                        tie(dummy_action, dummy_value) = dummy_plan.find_best_action();
+                        cout << "sampled value " << dummy_value << "\n";
+                    }
+                }
             }
             else
             {
                 //next_action = plan.backup_plan(est_t, err_t, est_o, err_o, opt_r, false, 1); // don't keep updating alpha vectors
-                next_action = plan.find_best_action();
+                tie(next_action, next_action_val) = plan.find_best_action();
             }
             // egreedy random action with decay
             // but stop egreedy for the last 2000 steps
@@ -2908,6 +3066,11 @@ void test_opt(bool use_opt, bool use_mom, int num_beliefs, string const &reward_
             assert (next_action >= 0 and next_action < TNA);
             
             // advance the pomdp
+            if (iter < 100)
+            {
+                // for the first couple of steps
+                next_action = sample_int(0, pomdp.numactions-1); // purely random actions
+            }
             pomdp.step(next_action);
             ro_map[pomdp.reward_obs[curr_ep].back()] = pomdp.rewards[curr_ep].back();
             //cout << "Curr Belief -- ";
@@ -2965,7 +3128,7 @@ void test_opt(bool use_opt, bool use_mom, int num_beliefs, string const &reward_
             // int initial_burn_in = 0;
             // if (1)
             // if (update_model)
-            if (iter % 100 == 0)
+            if ((iter+1) % 100 == 0 and iter > 0)
             // if ((curr_ep == initial_burn_in or (curr_ep > initial_burn_in and (curr_ep-initial_burn_in) % 50  == 0)) and curr_ep_step == 0)            
             {
                 // initialize(pomdp, est_t, est_o, est_ro);
@@ -3001,9 +3164,30 @@ void test_opt(bool use_opt, bool use_mom, int num_beliefs, string const &reward_
                         copy_matrix(tmp_est_r, est_r);
                         copy_matrix(tmp_opt_r, opt_r);
                     }
+                    
+                    // if (true)
+                    if (false)
+                    {
+                        cout << "---------- Iteration " << iter << " ----------" << endl;
+                        cout << "Log likelihood: " << ll << endl;
+                        cout << "True Log likelihood: " << likelihood(pomdp, pomdp.o, pomdp.t) << endl;
+                        cout << "model updated" << endl;
+                        cout << "esimated transitions" << endl;
+                        print_both(tmp_est_t, tmp_err_t);
+                        cout << "opt t" << endl;
+                        print_matrix(plan.opt_t);
+                        cout << "estimated obs" << endl;
+                        print_both(tmp_est_o, tmp_err_o);
+                        cout << "opt z" << endl;
+                        print_matrix(plan.opt_z);
+                        cout << "esimated reward obs" << endl;
+                        print_both(tmp_est_ro, tmp_err_ro);
+                        cout << "estimated rewards" << endl;
+                        print_both(tmp_est_r, tmp_opt_r);
+                    }
+                    
                 }
-                // cout << "Log likelihood: " << best_ll << endl;
-                // cout << "True Log likelihood: " << likelihood(pomdp, pomdp.o, pomdp.t) << endl;
+                
                 // if (est_o[0][0][0] <= 0.4 and est_o[0][1][0] <= 0.4)
                 // {
                 //     double temp_o[TNS][TNA][TNO];
@@ -3039,15 +3223,6 @@ void test_opt(bool use_opt, bool use_mom, int num_beliefs, string const &reward_
                 //     }
                 // }
                 model_updated = true;
-                // cout << "model updated" << endl;
-                // cout << "esimated transitions" << endl;
-                // print_both(est_t, err_t);
-                // cout << "estimated obs" << endl;
-                // print_both(est_o, err_o);
-                // cout << "esimated reward obs" << endl;
-                // print_both(est_ro, err_ro);
-                // cout << "estimated rewards" << endl;
-                // print_both(est_r, opt_r);
             }
             // if ((iter % 50 == 0))
             // {
@@ -3490,6 +3665,10 @@ void test_opt(bool use_opt, bool use_mom, int num_beliefs, string const &reward_
     }
     
     cout << "Cumulative reward " << sum_rewards/reps << endl;
+	if (use_sampling)
+	{
+		cout << "Fraction when found opt sample " << num_opt_samples << "/" << num_model_updates << " = " << 1.0*num_opt_samples/num_model_updates << endl;
+	}
 }
 
 int main()
@@ -3497,20 +3676,21 @@ int main()
     int const num_beliefs = 20;
     
     //test_random();
-    
     //find_planning_params();
+    //test_sampling();
     
     //test_em("l2_out.txt", "l2_out_err.txt", "linf_out.txt", "linf_out_err.txt");
     //       OPT?, MoM?
     // test_opt(true, true, "optimistic_rewards_halfx_9s.txt");
     
-    test_opt(true, false, num_beliefs, "2sensortiger8590_em_opt_episodic_rewards_everystep", "2sensortiger8590_em_opt_episodic_cumrewards_everystep", "2sensortiger8590_em_opt_episodic_actions_everystep");
-    //test_optimal_planning(num_beliefs, "2sensortiger8590_em_true_episodic_rewards_everystep", "2sensortiger8590_em_true_episodic_cumrewards_everystep", "2sensortiger8590_em_true_episodic_actions_everystep");
+	string prefix = "2sensortiger8590_ci" TO_STRING(EM_CI_SCALE);
+	// string prefix = "tworoom_ci" TO_STRING(EM_CI_SCALE);
+	
+    // test_opt(true, false, false, num_beliefs, prefix + "_episodic_rewards_everystep", prefix + "_episodic_cumrewards_everystep", prefix + "_episodic_actions_everystep");
+    test_opt(true, false, true, num_beliefs, prefix + "_sample_episodic_rewards_everystep", prefix + "_sample_episodic_cumrewards_everystep", prefix + "_sample_episodic_actions_everystep");
     
-     //test_opt(true, false, num_beliefs, "tworoom_em_opt_episodic_rewards_everystep", "tworoom_em_opt_episodic_cumrewards_everystep", "tworoom_em_opt_episodic_actions_everystep");
-    //test_optimal_planning(num_beliefs, "tworoom_em_true_episodic_rewards_everystep", "tworoom_em_true_episodic_cumrewards_everystep", "tworoom_em_true_episodic_actions_everystep");
-    
-    // test_opt(false, false, "tworoom_em_egreedy_episodic_rewards", "tworoom_em_egreedy_episodic_cumrewards", "tworoom_em_egreedy_episodic_actions", 50);
+	//test_optimal_planning(num_beliefs, "2sensortiger8590_em_true_episodic_rewards_everystep", "2sensortiger8590_em_true_episodic_cumrewards_everystep", "2sensortiger8590_em_true_episodic_actions_everystep");
+	//test_optimal_planning(num_beliefs, "tworoom_em_true_episodic_rewards_everystep", "tworoom_em_true_episodic_cumrewards_everystep", "tworoom_em_true_episodic_actions_everystep");
 
     // test_opt(false, true, "mean_rewards_9s_new.txt");
     // test_opt(false, false, "optimal_rewards.txt");

@@ -19,11 +19,11 @@
 %    are expected to be)
 %
 addpath ../ipomdp-code/
-dir_name = '2sensortiger';
+dir_name = 'tworoom';
 solver_type = 'ffbs';
 action_type = 'epsilon_greedy'; 
 savedir = 'outputs/';
-for rep = 1:10;
+for rep = 1:1;
      hyper_set.gamma = 10;
      hyper_set.alpha0 = 1;
     tester( dir_name , action_type , solver_type , rep , hyper_set, savedir )

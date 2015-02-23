@@ -3,6 +3,14 @@ num_runs = 10;
 rewards = zeros(1,horizon);
 horizons = zeros(1,num_runs);
 
+% root = 'simulation_rep_test_2sensortiger_ffbs_epsilon_greedy_';
+root = 'simulation_rep_test_2sensortiger_ffbs_weighted_stochastic_';
+
+% root = 'simulation_rep_test_tworoom_ffbs_epsilon_greedy_';
+% root = 'simulation_rep_test_tworoom_ffbs_weighted_stochastic_';
+% root = 'simulation_rep_test_tworoom_ffbs_beb_';
+% root = 'simulation_rep_test_tworoom_ffbs_boss_';
+
 for i=1:num_runs
 %     load(['../domain-code/outputs/simulation_rep_test_2sensortiger_ffbs_weighted_stochastic_' int2str(i) '_episodic.mat'])
 %     load(['../domain-code/outputs/simulation_rep_test_2sensortiger_ffbs_epsilon_greedy_' int2str(i) '_episodic.mat'])
@@ -11,7 +19,7 @@ for i=1:num_runs
 %     load(['../domain-code/outputs/tworoom_ffbs_weighted_stochastic/simulation_rep_test_tworoom_ffbs_weighted_stochastic_' int2str(i) '_episodic.mat'])
 %     load(['../domain-code/outputs/simulation_rep_test_tworoom_ffbs_weighted_stochastic_' int2str(i) '_episodic.mat'])
 %     load(['../domain-code/outputs/simulation_rep_test_tworoom_ffbs_softmax_' int2str(i) '_episodic.mat'])
-    load(['../domain-code/outputs/simulation_rep_test_tworoom_ffbs_epsilon_greedy_' int2str(i) '_episodic.mat'])
+    load(['../domain-code/outputs/keep_start100/' root int2str(i) '_episodic.mat'])
     
 %     load(['testingsimulation_rep_test_tiger_ipomdp_weighted_stochastic_' int2str(i) '.mat'])
 %     load(['testingsimulation_rep_test_hallway_ipomdp_weighted_stochastic_' int2str(i) '.mat'])
@@ -48,4 +56,4 @@ xlabel('Step');
 ylabel('Rewards');
 
 plotdata = {lengths, rewards};
-save('catch_trials.mat','plotdata');
+save([ root '.mat' ],'plotdata');

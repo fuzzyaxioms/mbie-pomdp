@@ -43,7 +43,7 @@ switch test_param_set.solver_type
         utree_set.reward_set = sim_pomdp.maxReward * ones( [ 1 sim_pomdp.nrActions ] );
 end
 experience_count = 0; rep = 1;
-most_recent_update_iter = 1; update_count = 1;
+most_recent_update_iter = 0; update_count = 1;
 most_recent_save_iter = 1;
 
 % For non-episodic domains we have to set this before the loop. -Shayan

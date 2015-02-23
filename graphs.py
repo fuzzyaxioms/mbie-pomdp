@@ -84,15 +84,42 @@ def graph_mat(infile, lbl, cm=False):
 
 if True:
     eps = 50
+    
+    plt.figure()
     plt.plot([0, eps*50],[1.80852, 1.80852], label='0.9') # acc=0.9
     plt.plot([0, eps*50],[1.08381, 1.08381], label='0.85') # acc=0.85
+#    graph_rewards('emkeep_start100/2sensortiger8590_ci0.0_episodic_rewards_everystep', 20, eps*50, 'em ci 0.0', cm=False)
+    graph_rewards('emkeep_start100/2sensortiger8590_ci0.1_episodic_rewards_everystep', 20, eps*50, 'em ci 0.1', cm=False)
+#    graph_rewards('emkeep_start100/2sensortiger8590_ci0.3_episodic_rewards_everystep', 20, eps*50, 'em ci 0.3', cm=False)
+#    graph_rewards('emkeep_start100/2sensortiger8590_ci0.5_episodic_rewards_everystep', 20, eps*50, 'em ci 0.5', cm=False)
+    graph_rewards('emkeep_start100/2sensortiger8590_ci1.0_episodic_rewards_everystep', 20, eps*50, 'em ci 1.0', cm=False)
+    graph_rewards('emkeep_start100/2sensortiger8590_ci1.0_sample_episodic_rewards_everystep', 20, eps*50, 'em ci 1.0 sample 20', cm=False)
+    graph_rewards('emkeep_start100/2sensortiger8590_ci0.1_sample_episodic_rewards_everystep', 20, eps*50, 'em ci 0.1 sample 20', cm=False)
+    graph_rewards('emkeep_start0/2sensortiger8590_ci1.0_episodic_rewards_everystep', 20, eps*50, 'em ci 1.0 no rand', cm=False)
+    graph_mat('iPOMDP/pomdp-util/simulation_train_2sensortiger_ffbs_epsilon_greedy_.mat', 'epsilon_greedy', cm=False)
+    graph_mat('iPOMDP/pomdp-util/simulation_rep_test_2sensortiger_ffbs_epsilon_greedy_.mat', 'epsilon_greedy ct', cm=False)
+    graph_mat('iPOMDP/pomdp-util/simulation_train_2sensortiger_ffbs_weighted_stochastic_.mat', 'weighted_stochastic', cm=False)
+    graph_mat('iPOMDP/pomdp-util/simulation_rep_test_2sensortiger_ffbs_weighted_stochastic_.mat', 'weighted_stochastic ct', cm=False)
+    plt.ylim([-10.0, 2.0])
+    plt.legend(loc='lower right')
+    plt.xlabel('Time step')
+    plt.ylabel('Immediate Reward')
 #    plt.plot([0, eps*50],[0.6, 0.6]) # for acc=0.8
-#    plt.plot([0, 50*50],[0.72, 0.72]) # for tworoom
-    graph_rewards('2sensortiger8590_em_opt_episodic_rewards_everystep', 20, eps*50, 'em', cm=False)
-#    graph_rewards('tworoom_ci2/tworoom_ci2em_opt_episodic_rewards_everystep', 40, eps*50, cm=False)
-#    graph_rewards('tworoom_em_opt_episodic_rewards_everystep', 20, eps*50, 'em', cm=False)
-    graph_mat('iPOMDP/pomdp-util/train_rewards.mat', 'egreedy', cm=False)
-    graph_mat('iPOMDP/pomdp-util/catch_trials.mat', 'cts', cm=False)
+    
+    plt.figure()
+    plt.plot([0, 50*50],[0.72, 0.72]) # for tworoom
+#    graph_rewards('emkeep_start0/tworoom_ci1.0_episodic_rewards_everystep', 20, eps*50, 'em ci 1.0 no rand', cm=False)
+#    graph_rewards('emkeep_start0/tworoom_ci2.0_episodic_rewards_everystep', 20, eps*50, 'em ci 2.0 no rand', cm=False)
+    graph_rewards('emkeep_start100/tworoom_ci1.0_episodic_rewards_everystep', 20, eps*50, 'em ci 1.0', cm=False)
+#    graph_rewards('emkeep_start100/tworoom_ci2.0_episodic_rewards_everystep', 20, eps*50, 'em ci 2.0', cm=False)
+    graph_rewards('emkeep_start100/tworoom_ci3.0_episodic_rewards_everystep', 20, eps*50, 'em ci 3.0', cm=False)
+    graph_rewards('emkeep_start100/tworoom_ci1.0_sample_episodic_rewards_everystep', 20, eps*50, 'em ci 1.0 sample 20', cm=False)
+    graph_rewards('emkeep_start100/tworoom_ci3.0_sample_episodic_rewards_everystep', 20, eps*50, 'em ci 3.0 sample 20', cm=False)
+    graph_mat('iPOMDP/pomdp-util/simulation_train_tworoom_ffbs_epsilon_greedy_.mat', 'epsilon_greedy', cm=False)
+    graph_mat('iPOMDP/pomdp-util/simulation_rep_test_tworoom_ffbs_epsilon_greedy_.mat', 'epsilon_greedy ct', cm=False)
+    graph_mat('iPOMDP/pomdp-util/simulation_train_tworoom_ffbs_weighted_stochastic_.mat', 'weighted_stochastic', cm=False)
+    graph_mat('iPOMDP/pomdp-util/simulation_rep_test_tworoom_ffbs_weighted_stochastic_.mat', 'weighted_stochastic ct', cm=False)
+
     plt.legend(loc='lower right')
     plt.xlabel('Time step')
     plt.ylabel('Immediate Reward')
