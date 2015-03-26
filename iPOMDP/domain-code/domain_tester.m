@@ -21,10 +21,13 @@
 addpath ../ipomdp-code/
 dir_name = 'tworoom';
 solver_type = 'ffbs';
-action_type = 'boss'; 
+action_type = 'beb'; 
 savedir = 'outputs/';
 for rep = 1:1;
      hyper_set.gamma = 10;
      hyper_set.alpha0 = 1;
+     hyper_set.search_depth = 0;
+     hyper_set.num_eps = 10;
+     hyper_set.stop_early = false;
     tester( dir_name , action_type , solver_type , rep , hyper_set, savedir )
 end

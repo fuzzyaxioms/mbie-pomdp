@@ -17,13 +17,14 @@
 #define EST_O true
 #define EST_RO (EM_USE_RO and true)
 #define EST_R true
-#define EM_CI_SCALE 0.1
+#define EM_CI_SCALE 0.0
 
 #define TO_STRING_HELPER(x) #x
 #define TO_STRING(x) TO_STRING_HELPER(x)
 
 #if 0
 #define POMDP POMDP_OneArm
+#define POMDP_NAME "tworoom"
 #define TNA 2
 #define TNS 2
 #define TNO 2
@@ -36,21 +37,37 @@
 #define ACC2 0.9
 #define LEARNING_EASE 0.3
 #define REWARD_GAP 1.0
-#elif 1
+#elif 0
 #define POMDP POMDP_MSTiger
+#define POMDP_NAME "2sensortiger"
 #define TNA 4
 #define TNS 2
 #define TNO 2
 #define TNR 3
-#define BIG_REWARD 10
+#define BIG_REWARD 10 // not used
 #define SMALL_REWARD -100.00 // not used
 #define SUCCESS_PROB 0.1 // not used
+#define OBS_SUCCESS 0.85 // not used
+#define ACC1 0.85 // not used
+#define ACC2 0.90 // not used
+#define LEARNING_EASE 0.3 // not used
+#define REWARD_GAP 110.0 
+#elif 1
+#define POMDP POMDP_Tiger
+#define POMDP_NAME "tiger"
+#define TNA 3
+#define TNS 2
+#define TNO 2
+#define TNR 3
+#define BIG_REWARD 10
+#define SMALL_REWARD -100.00
+#define SUCCESS_PROB 0.1 // not used
 #define OBS_SUCCESS 0.85
-#define ACC1 0.85
-#define ACC2 0.90
-#define LEARNING_EASE 0.3
+#define ACC1 0.85 // not used
+#define ACC2 0.90 // not used
+#define LEARNING_EASE 0.3 // not used
 #define REWARD_GAP 110.0
-#else
+#else // in progress
 #define POMDP POMDP_Shuttle
 #define TNA 3
 #define TNS 8
@@ -69,17 +86,40 @@
 #include "planning.hpp"
 #include "sampling.hpp"
 #include "mom.cpp"
+#include "pbvi.hpp"
 
 using namespace std;
 using namespace arma;
 
-//#define TIGER_REWARD 10
-//#define TIGER_PENALTY (-100)
-
 // before it was 1.0 and 2.0 the rewards, success prob was 0.05 and obs success was 0.8
 // now it's 0.5 and 1.0, then 0.1, then 0.9
 
-// ofstream outFile;
+// parameters for the testing
+struct test_params
+{
+	bool use_opt;
+	bool use_mom;
+	bool use_sampling;
+	unsigned initial_seed;
+	unsigned num_seeds;
+	unsigned num_beliefs;
+	unsigned at_least_eps;
+	unsigned max_steps_per_ep;
+	unsigned rand_start;
+	unsigned update_interval;
+	unsigned restarts;
+	unsigned nextremes;
+	
+	test_params():
+		use_opt(true), use_mom(false), use_sampling(false),
+		initial_seed(745898798), num_seeds(10),
+		num_beliefs(20),
+		at_least_eps(10), max_steps_per_ep(50),
+		rand_start(100), update_interval(100), restarts(10),
+		nextremes(10)
+	{}
+};
+
 clock_t t;
 clock_t rept;
 
@@ -125,11 +165,11 @@ void print_matrix(cube const &arr)
 {
     for (size_t x = 0; x < arr.n_rows; ++x)
     {
-        for (size_t y = 0; y < arr.n_cols; ++y)
+		for (size_t z = 0; z < arr.n_slices; ++z)
         {
-            for (size_t z = 0; z < arr.n_slices; ++z)
+            for (size_t y = 0; y < arr.n_cols; ++y)
             {
-                cout << x << "," << y << "," << z << " | " << fixed << setw(9) << arr(x,y,z) << endl;
+                cout << x << "," << z << "," << y << " | " << fixed << setw(9) << arr(x,y,z) << endl;
             }
         }
     }
@@ -210,8 +250,24 @@ void print_both(T const (&arr)[A][B][C], T const (&err)[A][B][C])
         {
             for (size_t z = 0; z < C; ++z)
             {
-                cout << x << "," << y << "," << z << " |" << fixed << setw(12)
-                    << arr[x][y][z] << setw(12) << err[x][y][z] << endl;
+                cout << x << "," << y << "," << z << " |" << fixed << setw(10)
+                    << arr[x][y][z] << setw(10) << err[x][y][z] << endl;
+            }
+        }
+    }
+}
+
+template <class T, size_t A, size_t B, size_t C>
+void print_three(T const (&arr)[A][B][C], T const (&err)[A][B][C], T const (&actual)[A][B][C])
+{
+    for (size_t x = 0; x < A; ++x)
+    {
+        for (size_t y = 0; y < B; ++y)
+        {
+            for (size_t z = 0; z < C; ++z)
+            {
+                cout << x << "," << y << "," << z << " |" << fixed << setw(10)
+                    << arr[x][y][z] << setw(10) << err[x][y][z] << setw(10) << actual[x][y][z] << endl;
             }
         }
     }
@@ -224,10 +280,102 @@ void print_both(T const (&arr)[A][B], T const (&err)[A][B])
     {
         for (size_t y = 0; y < B; ++y)
         {
-            cout << x << "," << y<< " |" << fixed << setw(12)
-                << arr[x][y] << setw(12) << err[x][y] << endl;
+            cout << x << "," << y<< " |" << fixed << setw(10)
+                << arr[x][y] << setw(10) << err[x][y] << endl;
         }
     }
+}
+
+template <class T, size_t A, size_t B>
+void print_three(T const (&arr)[A][B], T const (&err)[A][B], T const (&actual)[A][B])
+{
+    for (size_t x = 0; x < A; ++x)
+    {
+        for (size_t y = 0; y < B; ++y)
+        {
+            cout << x << "," << y<< " |" << fixed << setw(10)
+                << arr[x][y] << setw(10) << err[x][y] << setw(10) << actual[x][y]  << endl;
+        }
+    }
+}
+
+// convert the old matrices into the new cube armadillo versions
+template <class T, size_t A, size_t B>
+void convert_reward(T const (&arr)[A][B], Mat<T> & out_arr)
+{
+	for (uword curr_s = 0; curr_s < A; ++curr_s)
+	{
+		for (uword curr_a = 0; curr_a < B; ++curr_a)
+		{
+			out_arr(curr_s, curr_a) = arr[curr_s][curr_a];
+		}
+	}
+}
+// convert the old matrices into the new cube armadillo versions
+template <class T, size_t A, size_t B, size_t C>
+void convert_transitions(T const (&arr)[A][B][C], Cube<T> & out_arr)
+{
+	// from T[s][a][s'] to T(s,s',a)
+	for (uword curr_a = 0; curr_a < B; ++curr_a)
+	{
+		for (uword next_s = 0; next_s < C; ++next_s)
+		{
+			for (uword curr_s = 0; curr_s < A; ++curr_s)
+			{
+				out_arr(curr_s, next_s, curr_a) = arr[curr_s][curr_a][next_s];
+			}
+		}
+	}
+}
+
+template <class T, size_t A, size_t B, size_t C>
+void convert_observations(T const (&arr)[A][B][C], Cube<T> & out_arr)
+{
+	// from Z[s'][a][z] to Z(s',z,a)
+	for (uword curr_a = 0; curr_a < B; ++curr_a)
+	{
+		for (uword curr_z = 0; curr_z < C; ++curr_z)
+		{
+			for (uword curr_s = 0; curr_s < A; ++curr_s)
+			{
+				out_arr(curr_s, curr_z, curr_a) = arr[curr_s][curr_a][curr_z];
+			}
+		}
+	}
+}
+
+template <class T, size_t A, size_t B, size_t C>
+void convert_reward_obs(T const (&arr)[A][B][C], T const (&ro_map)[C], Mat<T> & out_arr)
+{
+	for (uword curr_s = 0; curr_s < A; ++curr_s)
+	{
+		for (uword curr_a = 0; curr_a < B; ++curr_a)
+		{
+			T expected_r = 0.0;
+			for (uword curr_ro = 0; curr_ro < C; ++curr_ro)
+			{
+				expected_r += ro_map[curr_ro] * arr[curr_s][curr_a][curr_ro];
+			}
+			out_arr(curr_s, curr_a) = expected_r;
+		}
+	}
+}
+
+template <class T, size_t A, size_t B, size_t C>
+void simplify_reward_obs(T const (&arr)[A][B][C], T const (&ro_map)[C], T (&out_arr)[A][B])
+{
+	for (uword curr_s = 0; curr_s < A; ++curr_s)
+	{
+		for (uword curr_a = 0; curr_a < B; ++curr_a)
+		{
+			T expected_r = 0.0;
+			for (uword curr_ro = 0; curr_ro < C; ++curr_ro)
+			{
+				expected_r += ro_map[curr_ro] * arr[curr_s][curr_a][curr_ro];
+			}
+			out_arr[curr_s][curr_a] = expected_r;
+		}
+	}
 }
 
 double l2_dist_squared(double const (&a1)[TNS][TNA][TNS], double const (&a2)[TNS][TNA][TNS])
@@ -346,7 +494,10 @@ struct POMDP_Tiger
     double ro[TNS][TNA][TNR];
     // mapping from reward obs to reward
     double ro_map[TNR];
-
+	
+	// initial starting distribution
+    vector<double> start;
+	
     vector<vector <int>> actions;
     vector<vector <int>> obs;
     vector<vector <double>> rewards;
@@ -363,18 +514,21 @@ struct POMDP_Tiger
         : numstates(TNS), numactions(TNA), numobs(TNO),
           gamma(0.99), rmax(BIG_REWARD)
     {
+		// even split to boot
+        start = {0.5, 0.5};
+		
         // actions are: go left or go right
         // states are: left, right
         // obs are: hear left, hear right
         // obs are fixed
 
         // the only rewards are going left in left and going right in right
-        r[0][0] = -1;
-        r[0][1] = 10;
-        r[0][2] = -100;
+        r[0][0] = -1.0;
+        r[0][1] = 10.0;
+        r[0][2] = -100.0;
 
-        r[1][0] = -1;
-        r[1][1] = -100;
+        r[1][0] = -1.0;
+        r[1][1] = -100.0;
         r[1][2] = 10.0;
         
         ro_map[0] = -1;
@@ -444,7 +598,7 @@ struct POMDP_Tiger
         o[1][2][1] = 0.5;
 
         // start
-        curr_state = sample_int(0, TNS-1);
+        curr_state = sample_discrete(start);
 
         vector<int> epi_actions;
         vector<int> epi_obs;
@@ -524,7 +678,20 @@ struct POMDP_Tiger
 
     void new_episode()
     {
-        curr_state = sample_int(0, TNS - 1);
+        epi += 1;
+        vector<int> epi_actions;
+        vector<int> epi_obs;
+        vector<double> epi_rewards;
+        vector<int> epi_reward_obs;
+        vector<int> epi_states;        
+
+        actions.push_back(epi_actions);
+        obs.push_back(epi_obs);
+        rewards.push_back(epi_rewards);
+        reward_obs.push_back(epi_reward_obs);
+        states.push_back(epi_states);
+
+        curr_state = sample_discrete(start);
     }
     
     void set_o(double (&new_o)[TNS][TNA][TNO])
@@ -1388,6 +1555,66 @@ struct POMDP_Shuttle
 };
 #endif
 
+
+// check if two room is within confidence intervals subject to state and/or obs non-identifiability
+bool tworoom_is_contained(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA][TNS], double (&est_o)[TNS][TNA][TNO], double (&err_o)[TNS][TNA][TNO], double (&est_ro)[TNS][TNA][TNR], double (&err_ro)[TNS][TNA][TNR], double (&est_r)[TNS][TNA], double (&opt_r)[TNS][TNA], bool flip_states, bool flip_obs)
+{
+	vector<int> ss = {0,1};
+	vector<int> zz = {0,1};
+	if (flip_states)
+	{
+		ss = {1,0};
+	}
+	if (flip_obs)
+	{
+		zz = {1,0};
+	}
+	
+	// compare rewards
+	for (int i = 0; i < 2; ++i)
+	{
+		for (int j = 0; j < 2; ++j)
+		{
+			if (opt_r[ss[i]][j] < pomdp.r[i][j])
+			{
+				return false;
+			}
+		}
+	}
+	
+	// compare transitions
+	for (int i = 0; i < 2; ++i)
+	{
+		for (int j = 0; j < 2; ++j)
+		{
+			for (int k = 0; k < 2; ++k)
+			{
+				if (est_t[ss[i]][j][ss[k]] + err_t[ss[i]][j][ss[k]] < pomdp.t[i][j][k])
+				{
+					return false;
+				}
+			}
+		}
+	}
+	
+	// compare observations
+	for (int i = 0; i < 2; ++i)
+	{
+		for (int j = 0; j < 2; ++j)
+		{
+			for (int k = 0; k < 2; ++k)
+			{
+				if (est_o[ss[i]][j][zz[k]] + err_o[ss[i]][j][zz[k]] < pomdp.o[i][j][k])
+				{
+					return false;
+				}
+			}
+		}
+	}
+	
+	return true;
+}
+
 // initialize all parameters
 void initialize(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&est_o)[TNS][TNA][TNO], double (&est_ro)[TNS][TNA][TNR])
 {
@@ -1492,12 +1719,19 @@ void initialize(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&est_o)[TN
     {
         copy_matrix(pomdp.ro, est_ro);
     }
+	
+	// try initializing to true values to see if EM escapes out of this
+	if (false)
+	{
+		copy_matrix(pomdp.t, est_t);
+		copy_matrix(pomdp.o, est_o);
+		copy_matrix(pomdp.ro, est_ro);
+	}
 }
 
 // uses reward as obs
 double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA][TNS], double (&est_o)[TNS][TNA][TNO], double (&err_o)[TNS][TNA][TNO], double (&est_ro)[TNS][TNA][TNR], double (&err_ro)[TNS][TNA][TNR], double (&est_r)[TNS][TNA], double (&opt_r)[TNS][TNA], double scale_t = 1.0, double scale_o = 1.0, double scale_ro = 1.0, double scale_r = 1.0)
 {
-    
     vector<double> pi = pomdp.start;
     
     const int num_iters = 400;
@@ -2068,7 +2302,14 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
         // initialize the base cases of alpha
         for (int i = 0; i < TNS; ++i)
         {
-            alpha[0][i] = pi[i];
+            if (EM_USE_RO)
+			{
+				alpha[0][i] = est_ro[i][pomdp.actions[epi][0]][pomdp.reward_obs[epi][0]] * pi[i];
+			}
+			else
+			{
+				alpha[0][i] = pi[i];
+			}
         }
 
         // recursively build up alpha and beta from previous values
@@ -2085,7 +2326,14 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
                 {
                     asum += alpha[ai-1][j]*est_t[j][pomdp.actions[epi][ai-1]][i];
                 }
-                alpha[ai][i] = asum * est_o[i][pomdp.actions[epi][ai-1]][pomdp.obs[epi][ai-1]];
+                if (EM_USE_RO)
+				{
+					alpha[ai][i] = asum * est_o[i][pomdp.actions[epi][ai-1]][pomdp.obs[epi][ai-1]] * est_ro[i][pomdp.actions[epi][ai]][pomdp.reward_obs[epi][ai]];
+				}
+				else
+				{
+				  alpha[ai][i] = asum * est_o[i][pomdp.actions[epi][ai-1]][pomdp.obs[epi][ai-1]];
+				}
                 
                 a_denom += alpha[ai][i];
             }
@@ -2112,7 +2360,111 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
     return ll;
 }
 
-double likelihood(POMDP &pomdp, double est_o[TNS][TNA][TNO], double est_t[TNS][TNA][TNS])   
+double likelihood(POMDP &pomdp, double est_o[TNS][TNA][TNO], double est_t[TNS][TNA][TNS], double est_ro[TNS][TNA][TNR])   
+{
+    double log_const = log(1.0);
+    double ll = log(0.0);
+    for (int epi = 0; epi < pomdp.states.size(); ++epi)
+    {
+
+        const int T = pomdp.states[epi].size();
+        double pi[2] = {0.5, 0.5};
+        if (T <= 0)
+        {
+            return 0;
+        }
+        
+        double alpha[T][TNS];
+        
+        // calculate the log likelihood by recomputing the alphas and keeping the constants around
+        // initialize the base cases of alpha
+        for (int i = 0; i < TNS; ++i)
+        {
+            if (EM_USE_RO)
+			{
+				alpha[0][i] = est_ro[i][pomdp.actions[epi][0]][pomdp.reward_obs[epi][0]] * pi[i];
+			}
+			else
+			{
+				alpha[0][i] = pi[i];
+			}
+        }
+        
+        // recursively build up alpha and beta from previous values
+        for (int t = 1; t < T; ++t)
+        {
+            // alpha goes forward
+            int ai = t;
+            // to normalize alpha
+            double a_denom = 0;
+            // do the recursive update
+            for (int i = 0; i < TNS; ++i) 
+            {
+                double asum = 0;
+                for (int j = 0; j < TNS; ++j)
+                {
+                    asum += alpha[ai-1][j]*est_t[j][pomdp.actions[epi][ai-1]][i];
+                }
+				if (EM_USE_RO)
+				{
+					alpha[ai][i] = asum * est_o[i][pomdp.actions[epi][ai-1]][pomdp.obs[epi][ai-1]] * est_ro[i][pomdp.actions[epi][ai]][pomdp.reward_obs[epi][ai]];
+				}
+				else
+				{
+				  alpha[ai][i] = asum * est_o[i][pomdp.actions[epi][ai-1]][pomdp.obs[epi][ai-1]];
+				}
+                
+                a_denom += alpha[ai][i];
+            }
+            if (not (a_denom > 0 or a_denom <= 0))
+            {
+                for (int x = 0; x < TNS; x++)
+                {
+                    for (int y = 0; y < TNA; y++)
+                    {
+                        for (int z = 0; z < TNO; z++)
+                        {
+                            cout << x << y << z << " : " << est_t[x][y][z] << endl;
+                        }
+                    }
+                }
+                for (int x = 0; x < TNS; x++)
+                {
+                    for (int y = 0; y < TNA; y++)
+                    {
+                        for (int z = 0; z < TNO; z++)
+                        {
+                            cout << x << y << z << " : " << est_o[x][y][z] << endl;
+                        }
+                    }
+                }
+            }
+            if (a_denom <= 0)
+            {
+                return - numeric_limits<double>::infinity();
+            }
+            assert(a_denom > 0);
+            
+            // normalize alpha and add in the normalization constant
+            for (int i = 0; i < TNS; ++i)
+            {
+                alpha[ai][i] /= a_denom;
+            }
+            
+            log_const = mylogmul(log_const, log(a_denom));
+        }
+        
+        // now calculate the log likelihood by summing up the last of alpha
+        for (int i = 0; i < TNS; ++i)
+        {
+            ll = mylogadd(ll, log(alpha[T-1][i]));
+        }
+        ll = mylogmul(ll, log_const);
+    }
+    return ll;
+}
+
+double likelihood(POMDP &pomdp, double est_o[TNS][TNA][TNO], double est_t[TNS][TNA][TNS])
 {
     double log_const = log(1.0);
     double ll = log(0.0);
@@ -2150,7 +2502,7 @@ double likelihood(POMDP &pomdp, double est_o[TNS][TNA][TNO], double est_t[TNS][T
                 {
                     asum += alpha[ai-1][j]*est_t[j][pomdp.actions[epi][ai-1]][i];
                 }
-                alpha[ai][i] = asum * est_o[i][pomdp.actions[epi][ai-1]][pomdp.obs[epi][ai-1]];
+				alpha[ai][i] = asum * est_o[i][pomdp.actions[epi][ai-1]][pomdp.obs[epi][ai-1]];
                 
                 a_denom += alpha[ai][i];
             }
@@ -2726,16 +3078,12 @@ void test_optimal_planning(int num_beliefs, string const &reward_out, string con
     cout << "Per step reward " << sum_rewards/reps/steps << endl;
 }
 
-void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, string const &reward_out, string const &cumreward_out, string const &actions_out, double decay = -1)
+void test_opt(test_params const & params, string const &reward_out, string const &cumreward_out, string const &actions_out, string const &rsa_out, string const & summary_out)
 {
-    unsigned initial_seed = 745898798;
-    //unsigned initial_seed = time(0);
-    
     // generate a bunch of seeds, one for each rep
-	seed_seq sseq = {initial_seed};
+	seed_seq sseq = {params.initial_seed};
 	
-	const unsigned num_seeds = 20;
-    vector<unsigned> seeds(num_seeds);
+    vector<unsigned> seeds(params.num_seeds);
     // seeds.push_back(3303811027);
     // seeds.push_back(1610352249);
     //seeds.push_back(1611917390);
@@ -2743,26 +3091,22 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
 	sseq.generate(seeds.begin(), seeds.end());
 	// seeds[0] = 467275708;
     
-    int reps = num_seeds;
-    int at_least_eps = 50; // no limit on how many total eps
-    int max_steps_per_ep = 50;
-    int steps = max_steps_per_ep * at_least_eps; // this is the only limit, which is on number of steps; this is to be the same as Finale's ocde
-    double sum_rewards = 0;
+    const int reps = params.num_seeds;
+    const int steps = params.max_steps_per_ep * params.at_least_eps; // this is the only limit, which is on number of steps; this is to be the same as Finale's ocde
+	double sum_rewards = 0;
     double prev_sum = 0;
     int nrandtriples = 0;
 	
 	// stats for when sampling extreme points is better than true model
 	unsigned num_model_updates = 0;
 	unsigned num_opt_samples = 0;
-
-    // number of EM random restarts
-    int restarts = 10;
+	unsigned num_contained = 0; // number of times EM+CI contain true params
 
     vector<double> rs(steps, 0.0);
     vector<double> eprs(1, 0.0);
 
     ofstream histogram_r(cumreward_out + ".txt");
-    ofstream output_a(actions_out + ".txt");
+    ofstream output_sum(summary_out + ".txt");
 
     mat I = eye<mat>(TNO*TNR, TNO*TNR);
     
@@ -2770,22 +3114,25 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
     double err_t[TNS][TNA][TNS];
     double zero_t[TNS][TNA][TNS];
     zero_out(zero_t);
+	cube est_transitions(TNS,TNS,TNA);
     
     double est_o[TNS][TNA][TNO];
     double err_o[TNS][TNA][TNO];
     double zero_o[TNS][TNA][TNO];
     zero_out(zero_o);
+	cube est_observations(TNS,TNO,TNA);
     
     double est_ro[TNS][TNA][TNR];
     double err_ro[TNS][TNA][TNR];
     
     double est_r[TNS][TNA];
     double opt_r[TNS][TNA];
+	mat est_rewards(TNS,TNA);
 
     double ro_map[TNR];
 
     double scale_t, scale_o, scale_ro, scale_r;
-    if (use_mom)
+    if (params.use_mom)
     {
         scale_t = scale_o = scale_ro = scale_r = 0.5;
     }
@@ -2803,7 +3150,10 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
         int curr_step = -1;
         int last_triple = -1;
         int momcount[TNA] = {0, 0};
-
+		
+		unsigned ep_num_model_updates = 0;
+		unsigned ep_num_contained = 0;
+		
         vector<cube> obs;
         cube newobs;
         for (int i = 0; i < TNA; i++)
@@ -2816,7 +3166,10 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
         bool model_updated = true;
         bool update_model = true;
         bool mom_updated[2] = {false, false};
-    
+		
+		// outputs
+		ofstream output_rsa(rsa_out + to_string(rep) + ".txt");
+		
         unsigned seed = seeds.at(rep);
         seed_default_rand(seed);
         cout << "---- Start rep " << rep << endl;
@@ -2881,9 +3234,10 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
         // curr_ep += 1;
         // pomdp.new_episode();
         initialize(pomdp, est_t, est_o, est_ro);
-        Planning<POMDP> plan(pomdp, num_beliefs);
+        Planning<POMDP> plan(pomdp, params.num_beliefs);
+		PBVI pbvi_plan(pomdp, params.num_beliefs+1);
         // for the dummy plan, the belief is never updated, only use beginning belief
-        Planning<POMDP> dummy_plan(pomdp, num_beliefs);
+        PBVI dummy_plan(pomdp, params.num_beliefs+1);
         for (int iter = 0; iter < steps; iter++) {
             ++curr_ep_step;
             ++curr_step;
@@ -2892,7 +3246,7 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
             //print_vector(plan.curr_belief);
             // t = clock();
             // if nonoptimistic
-            if (not use_opt) {
+            if (not params.use_opt) {
                 // zero out the confidence intervals
                 zero_out(err_t);
                 zero_out(err_o);
@@ -2916,59 +3270,129 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
 
             if (model_updated)
             {
-                if (not use_sampling)
+                if (not params.use_sampling)
                 {
+					double opt_true_r[TNS][TNA];
+					// take the true reward and add the reward confidence intervals for it
+					for (int i = 0; i < TNS; ++i)
+					{
+						for (int j = 0; j < TNA; ++j)
+						{
+							opt_true_r[i][j] = min(pomdp.rmax, pomdp.r[i][j] + (opt_r[i][j] - est_r[i][j]));
+						}
+					}
+					
                     next_action = plan.backup_plan(est_t, err_t, est_o, err_o, opt_r, true, 40);
+                    // next_action = plan.backup_plan(pomdp.t, err_t, pomdp.o, err_o, opt_true_r, true, 40);
+					
+					// output to model
+					// only works for tiger
+					// output first listen, then open left, then open right
+					// have to hack to accomodate for nonidentifiability
+					int s_left = opt_r[0][1] >= opt_r[0][2] ? 0 : 1;
+					int s_right = 1-s_left;
+					for (int a = 0; a < TNA; ++a)
+					{
+						output_rsa << opt_r[s_left][a] << " ";
+						output_rsa << opt_r[s_right][a] << " ";
+					}
+					output_rsa << "\n";
+					
                 }
                 else
                 {
-                    const int nextremes = 20;
                     double curr_best_value = -numeric_limits<double>::infinity();
-                    double best_extreme_t[TNS][TNA][TNS];
-                    double best_extreme_o[TNS][TNA][TNO];
-                    
-                    dummy_plan.curr_belief = plan.curr_belief;
+                    cube best_extreme_t(TNS,TNS,TNA);
+                    cube best_extreme_o(TNS,TNO,TNA);
+                    mat best_extreme_r(TNS,TNA);
                     
 					int dummy_action = -1;
                     double dummy_value = -numeric_limits<double>::infinity();
 					
+					vec curr_belief = conv_to<vec>::from(plan.curr_belief);
+					
 					// compute true values
-					dummy_plan.backup_plan(pomdp.t, zero_t, pomdp.o, zero_o, opt_r, true, 40);
-					tie(dummy_action, dummy_value) = dummy_plan.find_best_action();
+					cube true_t(TNS,TNS,TNA);
+					cube true_z(TNS,TNO,TNA);
+					mat true_r(TNS,TNA);
+					mat true_r_alt(TNS,TNA);
+					convert_transitions(pomdp.t, true_t);
+					convert_observations(pomdp.o, true_z);
+					convert_reward(opt_r, true_r);
+					
+					dummy_plan.plan(true_t, true_z, true_r, 40);
+					tie(dummy_action, dummy_value) = dummy_plan.find_action(curr_belief);
 					double true_v = dummy_value;
 					
-                    for (int ex_s = 0; ex_s < nextremes; ++ex_s)
+                    for (int ex_s = 0; ex_s < params.nextremes; ++ex_s)
                     {
                         double extreme_t[TNS][TNA][TNS];
                         double extreme_o[TNS][TNA][TNO];
-                        
+                        double extreme_ro[TNS][TNA][TNR];
                         
                         sample_extremes(est_t, err_t, extreme_t);
                         sample_extremes(est_o, err_o, extreme_o);
+                        sample_extremes(est_ro, err_ro, extreme_ro);
                         
-                        dummy_plan.backup_plan(extreme_t, zero_t, extreme_o, zero_o, opt_r, true, 40);
-                        tie(dummy_action, dummy_value) = dummy_plan.find_best_action();
+						convert_transitions(extreme_t, true_t);
+						convert_observations(extreme_o, true_z);
+						convert_reward_obs(extreme_ro, pomdp.ro_map, true_r_alt);
+						
+                        dummy_plan.plan(true_t, true_z, true_r_alt, 40);
+						tie(dummy_action, dummy_value) = dummy_plan.find_action(curr_belief);
                         
                         if (dummy_value > curr_best_value)
                         {
-                            copy_matrix(extreme_t, best_extreme_t);
-                            copy_matrix(extreme_o, best_extreme_o);
+							best_extreme_t = true_t;
+							best_extreme_o = true_z;
+							best_extreme_r = true_r_alt;
                             curr_best_value = dummy_value;
                         }
                     }
                     
-					++num_model_updates;
 					if (curr_best_value >= true_v - 0.00001)
 					{
 						++num_opt_samples;
 					}
 					
                     // use the best model
-                    next_action = plan.backup_plan(best_extreme_t, zero_t, best_extreme_o, zero_o, opt_r, true, 40);
+					pbvi_plan.plan(best_extreme_t, best_extreme_o, best_extreme_r, 40);
+					tie(next_action, next_action_val) = pbvi_plan.find_action(curr_belief);
+					
+					// put back the model
+					plan.opt_t = best_extreme_t;
+					plan.opt_z = best_extreme_o;
+					
+					// output to model
+					// only works for tiger
+					// output first listen, then open left, then open right
+					// have to hack to accomodate for nonidentifiability
+					mat const & print_r = best_extreme_r; // true_r/best_extreme_r
+					int s_left = print_r(0,1) >= print_r(0,2) ? 0 : 1;
+					int s_right = 1-s_left;
+					for (int a = 0; a < TNA; ++a)
+					{
+						output_rsa << print_r(s_left,a) << " ";
+						output_rsa << print_r(s_right,a) << " ";
+					}
+					output_rsa << "\n";
 					
 					if (false)
 					{
+						cout << "---------- Iteration " << iter << "\n";
 						cout << "true_v:" << true_v << " sampled_v: " << curr_best_value << " is bigger " << (curr_best_value >= true_v - 0.00001) << endl;
+						cout << "esimated transitions (s,a,s') - ci - true params" << endl;
+						print_three(est_t, err_t, pomdp.t);
+						cout << "opt t (s,a,s')" << endl;
+						print_matrix(best_extreme_t);
+						cout << "estimated obs (s,a,o) - ci - true params" << endl;
+						print_three(est_o, err_o, pomdp.o);
+						cout << "opt z (s,a,o)" << endl;
+						print_matrix(best_extreme_o);
+						cout << "estimated rewards (s,a) - opt r - true params" << endl;
+						print_three(est_r, opt_r, pomdp.r);
+						cout << "planning\n";
+						pbvi_plan.debug_print_points();
 					}
                 }
                 
@@ -2979,97 +3403,49 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
                 mom_updated[1] = false;
                 //plan.print_points();
                 
-                // if (iter % 100 == 0 and iter > 0)
-                if (false)
-                {
-                    // look at the estimated and planning derived optimistic parameters
-                    cout << "---------- Iteration " << iter << " ----------" << endl;
-                    // cout << "Log likelihood: " << best_ll << endl;
-                    // cout << "True Log likelihood: " << likelihood(pomdp, pomdp.o, pomdp.t) << endl;
-                    cout << "model updated" << endl;
-                    cout << "esimated transitions" << endl;
-                    print_both(est_t, err_t);
-                    cout << "opt t" << endl;
+                // if (iter % 20 == 0 and iter > 0 and iter <= 300)
+                // if (true)
+				if (false)
+				{
+					cout << "---------- Iteration " << iter << " ----------" << endl;
+					// cout << "Log likelihood: " << ll << endl;
+					// cout << "True Log likelihood: " << likelihood(pomdp, pomdp.o, pomdp.t) << endl;
+					cout << "model updated" << endl;
+					cout << "esimated transitions (s,a,s') - ci - true params" << endl;
+					print_three(est_t, err_t, pomdp.t);
+					cout << "opt t (s,a,s')" << endl;
 					print_matrix(plan.opt_t);
-                    cout << "estimated obs" << endl;
-                    print_both(est_o, err_o);
-                    cout << "opt z" << endl;
-                    print_matrix(plan.opt_z);
-                    cout << "esimated reward obs" << endl;
-                    print_both(est_ro, err_ro);
-                    cout << "estimated rewards" << endl;
-                    print_both(est_r, opt_r);
-                }
-                
-                //if (iter % 200 == 1)
-                if (false)
-                {
-                    // testing out sampling extreme points and comparing it
-                    // sample some extreme points and see how their values compare
-                    const int nextremes = 20;
-                    double extreme_t[TNS][TNA][TNS];
-                    double extreme_o[TNS][TNA][TNO];
-                    
-                    cout << "---------- Iteration " << iter << " ----------" << endl;
-                    int dummy_action = -1;
-                    double dummy_value = 0.0;
-                    dummy_plan.curr_belief = plan.curr_belief;
-                    
-                    dummy_plan.backup_plan(est_t, err_t, est_o, err_o, opt_r, true, 40);
-                    tie(dummy_action, dummy_value) = dummy_plan.find_best_action();
-                    cout << "optimistic value " << dummy_value << "\n";
-                    
-                    dummy_plan.backup_plan(pomdp.t, zero_t, pomdp.o, zero_o, opt_r, true, 40);
-                    tie(dummy_action, dummy_value) = dummy_plan.find_best_action();
-                    cout << "actual value (w/ opt_r) " << dummy_value << "\n";
-                    
-                    dummy_plan.backup_plan(pomdp.t, zero_t, pomdp.o, zero_o, pomdp.r, true, 40);
-                    tie(dummy_action, dummy_value) = dummy_plan.find_best_action();
-                    cout << "actual value (w/o opt_r) " << dummy_value << "\n";
-                    
-                    for (int ex_s = 0; ex_s < nextremes; ++ex_s)
-                    {
-                        sample_extremes(est_t, err_t, extreme_t);
-                        sample_extremes(est_o, err_o, extreme_o);
-                        
-                        //cout << "extreme points sampled" << endl;
-                        //cout << "esimated transitions" << endl;
-                        //print_both(est_t, err_t);
-                        //cout << "extreme t" << endl;
-                        //print_matrix(extreme_t);
-                        //cout << "estimated obs" << endl;
-                        //print_both(est_o, err_o);
-                        //cout << "extreme o" << endl;
-                        //print_matrix(extreme_o);
-                        dummy_plan.backup_plan(extreme_t, zero_t, extreme_o, zero_o, opt_r, true, 40);
-                        tie(dummy_action, dummy_value) = dummy_plan.find_best_action();
-                        cout << "sampled value " << dummy_value << "\n";
-                    }
-                }
+					cout << "estimated obs (s,a,o) - ci - true params" << endl;
+					print_three(est_o, err_o, pomdp.o);
+					cout << "opt z (s,a,o)" << endl;
+					print_matrix(plan.opt_z);
+					cout << "esimated reward obs (s,a,ro) - ci - true params" << endl;
+					print_three(est_ro, err_ro, pomdp.ro);
+					cout << "estimated rewards (s,a) - opt r - true params" << endl;
+					print_three(est_r, opt_r, pomdp.r);
+				}
+				
             }
             else
             {
-                //next_action = plan.backup_plan(est_t, err_t, est_o, err_o, opt_r, false, 1); // don't keep updating alpha vectors
-                tie(next_action, next_action_val) = plan.find_best_action();
-            }
-            // egreedy random action with decay
-            // but stop egreedy for the last 2000 steps
-            if (decay > 0.0 and iter + 2000 < steps)
-            {
-                double ep_chance = 1.0 / (iter/decay + 1.0);
-                if (sample_unif() < ep_chance)
-                {
-                    // egreedy to do actions
-                    next_action = sample_int(0, pomdp.numactions-1);
-                }
+				if (not params.use_sampling)
+				{
+					//next_action = plan.backup_plan(est_t, err_t, est_o, err_o, opt_r, false, 1); // don't keep updating alpha vectors
+					tie(next_action, next_action_val) = plan.find_best_action();
+				}
+				else
+				{
+					tie(next_action, next_action_val) = pbvi_plan.find_action(conv_to<vec>::from(plan.curr_belief));
+				}
             }
             assert (next_action >= 0 and next_action < TNA);
             
             // advance the pomdp
-            if (iter < 100)
+            if (iter < params.rand_start)
             {
                 // for the first couple of steps
                 next_action = sample_int(0, pomdp.numactions-1); // purely random actions
+                // next_action = 1;
             }
             pomdp.step(next_action);
             ro_map[pomdp.reward_obs[curr_ep].back()] = pomdp.rewards[curr_ep].back();
@@ -3128,12 +3504,9 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
             // int initial_burn_in = 0;
             // if (1)
             // if (update_model)
-            if ((iter+1) % 100 == 0 and iter > 0)
+            if ((iter+1) % params.update_interval == 0 and (iter+1) >= params.rand_start)
             // if ((curr_ep == initial_burn_in or (curr_ep > initial_burn_in and (curr_ep-initial_burn_in) % 50  == 0)) and curr_ep_step == 0)            
             {
-                // initialize(pomdp, est_t, est_o, est_ro);
-                // double ll = em(pomdp, est_t, err_t, est_o, err_o, est_ro, err_ro, est_r, opt_r, scale_t, scale_o, scale_ro, scale_r);
-
                 double tmp_est_t[TNS][TNA][TNS];
                 double tmp_err_t[TNS][TNA][TNS];
                 
@@ -3147,7 +3520,7 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
                 double tmp_opt_r[TNS][TNA];
                 double best_ll = - numeric_limits<double>::infinity();
                 double ll = 0;
-                for (int restart = 0; restart < restarts; restart++)
+                for (int restart = 0; restart < params.restarts; restart++)
                 {
                     initialize(pomdp, tmp_est_t, tmp_est_o, tmp_est_ro);
                     ll = em(pomdp, tmp_est_t, tmp_err_t, tmp_est_o, tmp_err_o, tmp_est_ro, tmp_err_ro, tmp_est_r, tmp_opt_r, scale_t, scale_o, scale_ro, scale_r);
@@ -3165,71 +3538,45 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
                         copy_matrix(tmp_opt_r, opt_r);
                     }
                     
-                    // if (true)
+                    // if (iter >= rand_start and iter <= 1000)
+					// if (true)
                     if (false)
                     {
                         cout << "---------- Iteration " << iter << " ----------" << endl;
+                        cout << "---------- Restart " << restart << " ----------" << endl;
                         cout << "Log likelihood: " << ll << endl;
-                        cout << "True Log likelihood: " << likelihood(pomdp, pomdp.o, pomdp.t) << endl;
+                        cout << "True Log likelihood: " << likelihood(pomdp, pomdp.o, pomdp.t, pomdp.ro) << endl;
                         cout << "model updated" << endl;
-                        cout << "esimated transitions" << endl;
-                        print_both(tmp_est_t, tmp_err_t);
-                        cout << "opt t" << endl;
-                        print_matrix(plan.opt_t);
-                        cout << "estimated obs" << endl;
-                        print_both(tmp_est_o, tmp_err_o);
-                        cout << "opt z" << endl;
-                        print_matrix(plan.opt_z);
-                        cout << "esimated reward obs" << endl;
-                        print_both(tmp_est_ro, tmp_err_ro);
-                        cout << "estimated rewards" << endl;
-                        print_both(tmp_est_r, tmp_opt_r);
+                        cout << "esimated transitions (s,a,s') - ci - true params" << endl;
+                        print_three(tmp_est_t, tmp_err_t, pomdp.t);
+                        // cout << "opt t (s,a,s')" << endl;
+                        // print_matrix(plan.opt_t);
+                        cout << "estimated obs (s,a,o) - ci - true params" << endl;
+                        print_three(tmp_est_o, tmp_err_o, pomdp.o);
+                        // cout << "opt z (s,a,o)" << endl;
+                        // print_matrix(plan.opt_z);
+                        cout << "esimated reward obs (s,a,ro) - ci - true params" << endl;
+                        print_three(tmp_est_ro, tmp_err_ro, pomdp.ro);
+                        cout << "estimated rewards (s,a) - opt r - true params" << endl;
+                        print_three(tmp_est_r, tmp_opt_r, pomdp.r);
                     }
                     
                 }
-                
-                // if (est_o[0][0][0] <= 0.4 and est_o[0][1][0] <= 0.4)
-                // {
-                //     double temp_o[TNS][TNA][TNO];
-                //     double temp_t[TNS][TNA][TNS];
-                //     // print_matrix(est_o);
-                //     for (int i = 0; i < TNS; i++)
-                //     {
-                //         for (int j = 0; j < TNA; j++)
-                //         {                    
-                //             for (int k = 0; k < TNO; k++)
-                //             {
-                //                 temp_o[i][j][k] = est_o[(i + 1) % 2][j][k];
-                //             }
-                //             for (int k = 0; k < TNS; k++)
-                //             {
-                //                 temp_t[i][j][k] = est_t[(i + 1) % 2][j][(k + 1) % 2];
-                //             }
-                //         }
-                //     }
-                //     for (int i = 0; i < TNS; i++)
-                //     {
-                //         for (int j = 0; j < TNA; j++)
-                //         { 
-                //             for (int k = 0; k < TNO; k++)
-                //             {
-                //                 est_o[i][j][k] = temp_o[i][j][k];
-                //             }
-                //             for (int k = 0; k < TNS; k++)
-                //             {
-                //                 est_t[i][j][k] = temp_t[i][j][k];
-                //             }
-                //         }
-                //     }
-                // }
+				
                 model_updated = true;
+				
+				bool is_contained = tworoom_is_contained(pomdp, est_t, err_t, est_o, err_o, est_ro, err_ro, est_r, opt_r, false, false);
+				is_contained |= tworoom_is_contained(pomdp, est_t, err_t, est_o, err_o, est_ro, err_ro, est_r, opt_r, true, false);
+				is_contained |= tworoom_is_contained(pomdp, est_t, err_t, est_o, err_o, est_ro, err_ro, est_r, opt_r, false, true);
+				is_contained |= tworoom_is_contained(pomdp, est_t, err_t, est_o, err_o, est_ro, err_ro, est_r, opt_r, true, true);
+				
+				++num_model_updates;
+				num_contained += is_contained ? 1 : 0;
+				
+				++ep_num_model_updates;
+				ep_num_contained += is_contained ? 1 : 0;
             }
-            // if ((iter % 50 == 0))
-            // {
-            //     cout << "EM Curr episode: " << curr_ep << endl;
-            //     print_both(est_o, err_o);
-            // }
-            if (use_mom and update_model)
+            if (params.use_mom and update_model)
             // if (use_mom and iter % 50 == 0)
             // if ((curr_ep == initial_burn_in or (curr_ep > initial_burn_in and (curr_ep-initial_burn_in) % 50  == 0)) and curr_ep_step == 0)
             {
@@ -3481,7 +3828,7 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
                 print_matrix(est_ro);
             }
 
-            if (use_mom and update_model)
+            if (params.use_mom and update_model)
             {
                 for (int i = 0; i < TNS; ++i)
                 {
@@ -3506,39 +3853,7 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
                     }
                 }
             }
-            if (0)
-             //if (iter % 1000 == 0)
-            {
-                cout << "-------------------- Iteration " << iter << " --------------------" << endl;
-                cout << "(s,a,r) = " << pomdp.states[curr_ep].back() << "," << pomdp.actions[curr_ep].back() << "," << pomdp.rewards[curr_ep].back() << endl;
-                cout << "Curr Belief -- ";
-                print_vector(plan.curr_belief);
-                cout << "estimated transitions" << endl;
-                print_both(est_t, err_t);
-                cout << "optimistic transitions" << endl;
-                print_matrix(plan.opt_t);
-                cout << "estimated obs" << endl;
-                print_both(est_o, err_o);
-                cout << "optimistic obs" << endl;
-                print_matrix(plan.opt_z);
-                cout << "estimated reward obs" << endl;
-                print_both(est_ro, err_ro);
-                cout << "estimated rewards" << endl;
-                print_both(est_r, opt_r);
-                cout << "-------------------- Iteration " << iter+1 << " --------------------" << endl;
-            }
-            // if (iter % 50 == 0)
-            // {
-            //     print_vector(pomdp.rewards[curr_ep]);
-            // }
-            // if (iter % 50 == 0)
-            // {
-            //     cout << "Curr episode: " << curr_ep << endl;
-            //     print_both(est_o, err_o);
-            //     cout << "---------" << endl;
-            //     print_both(est_t, err_t);
-            //     cout << "---------" << endl;
-            // }
+
             double recent_reward = pomdp.rewards[curr_ep].back();
             
             if (curr_ep >= eprs.size())
@@ -3547,22 +3862,15 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
             }
             eprs[curr_ep] += recent_reward;
             rs[curr_step] += recent_reward;
-            //if (curr_ep_step >= max_steps_per_ep)
-            if (abs(recent_reward - 10) < 0.01 or abs(recent_reward+100) < 0.01 or curr_ep_step >= max_steps_per_ep)
-            //if (abs(recent_reward - 10) < 0.01 or curr_ep_step >= max_steps_per_ep)
+            //if ((curr_ep_step+1) >= max_steps_per_ep)
+            if (abs(recent_reward - 10) < 0.01 or abs(recent_reward+100) < 0.01 or (curr_ep_step+1) >= params.max_steps_per_ep)
             {
                 // end of an episode
                 ++curr_ep;
-                curr_ep_step = 0;
+                curr_ep_step = -1;
                 pomdp.new_episode();
                 plan.reset_curr_belief();
-
             }
-            if (curr_ep >= at_least_eps and false) // disable limiting number of episodes
-            {
-                break;
-            }
-
         }
 
         for (size_t ep = 0; ep < pomdp.rewards.size(); ++ep)
@@ -3579,51 +3887,54 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
         // show some stats on the run
         if (1)
         {
-            // cout << "states" << endl;
-            // for (size_t ep = 0; ep < pomdp.states.size(); ++ep)
-            // {
-            //     for (size_t i = 0; i < pomdp.states[ep].size(); ++i)
-            //     {
-            //         cout << pomdp.states[ep][i] << " ";
-            //     }
-            // }
-            // cout << endl;
-            cout << "actions" << endl;
-            output_a << "actions rep " << rep << endl;
-            for (size_t ep = 0; ep < pomdp.actions.size(); ++ep)
+			output_sum << "---- current rep " << rep << endl;
+			output_sum << "seed " << seed << endl;
+			output_sum << setw(5) << "ix" << setw(4) << "ep" << setw(4) << "i" << setw(2) << "s" << setw(2) << "a" << setw(2) << "o" << setw(4) << "r" << "\n";
+            size_t ix = 0;
+			for (size_t ep = 0; ep < pomdp.states.size(); ++ep)
             {
-                for (size_t i = 0; i < pomdp.actions[ep].size(); ++i)
+                for (size_t i = 0; i < pomdp.states[ep].size(); ++i)
                 {
-                    cout << pomdp.actions[ep][i] << " ";
-                    output_a << pomdp.actions[ep][i] << " ";
+					output_sum << setw(5) << ix;
+					output_sum << setw(4) << ep;
+					output_sum << setw(4) << i;
+					output_sum << setw(2) << pomdp.states[ep][i];
+					output_sum << setw(2) << pomdp.actions[ep][i];
+					output_sum << setw(2) << pomdp.obs[ep][i];
+					output_sum << setw(4) << pomdp.rewards[ep][i];
+					output_sum << "\n";
+					++ix;
                 }
             }
-            output_a << endl;
-            cout << endl;
-            cout << "reward obs" << endl;
-            // for (size_t ep = 0; ep < pomdp.reward_obs.size(); ++ep)
-            // {
-            //     for (size_t i = 0; i < pomdp.reward_obs[ep].size(); ++i)
-            //     {
-            //         cout << pomdp.reward_obs[ep][i] << " ";
-            //     }
-            // }
-            // cout << endl;
             ofstream output_r(reward_out + to_string(rep) + ".txt");
-            // cout << "rewards" << endl;
+            ofstream output_a(actions_out + to_string(rep) + ".txt");
             for (size_t ep = 0; ep < pomdp.rewards.size(); ++ep)
             {
+				// compute the ratio of not taking action 0
+				double not_first_ratio = 0;
+				for (size_t i = 0; i < pomdp.rewards[ep].size(); ++i)
+                {
+					int curr_a = pomdp.actions[ep][i];
+					not_first_ratio += curr_a > 0 ? 1 : 0;
+                }
+				not_first_ratio /= pomdp.rewards[ep].size();
                 for (size_t i = 0; i < pomdp.rewards[ep].size(); ++i)
                 {
-                    // cout << pomdp.rewards[ep][i] << " ";
-                    output_r << pomdp.rewards[ep][i] << endl;
+					// use the expected reward instead of the actual reward to reduce stochasticity
+                    // output_r << pomdp.rewards[ep][i] << endl;
+					int curr_s = pomdp.states[ep][i];
+					int curr_a = pomdp.actions[ep][i];
+                    output_r << pomdp.r[curr_s][curr_a] << "\n";
+					output_a << not_first_ratio << "\n";
                 }
             }
             output_r.close();
+			output_a.close();
             // cout << "MoM count: 0: " << momcount[0] << ", 1: " << momcount[1] << endl;
         }
         
-        // cout << "Rewards: " << sum_rewards - prev_sum << endl;
+        cout << "Fraction when true params contained " << ep_num_contained << "/" << ep_num_model_updates << " = " << 1.0*ep_num_contained/ep_num_model_updates << endl;
+		output_sum << "Fraction when true params contained " << ep_num_contained << "/" << ep_num_model_updates << " = " << 1.0*ep_num_contained/ep_num_model_updates << endl;
         cout << "seed " << seed << endl;
         rept = clock() - rept;
         cout << "---- End Rep: " << ((float) rept)/CLOCKS_PER_SEC << endl << endl;;
@@ -3665,16 +3976,16 @@ void test_opt(bool use_opt, bool use_mom, bool use_sampling, int num_beliefs, st
     }
     
     cout << "Cumulative reward " << sum_rewards/reps << endl;
-	if (use_sampling)
+	if (params.use_sampling)
 	{
 		cout << "Fraction when found opt sample " << num_opt_samples << "/" << num_model_updates << " = " << 1.0*num_opt_samples/num_model_updates << endl;
 	}
+	cout << "Fraction when true params contained " << num_contained << "/" << num_model_updates << " = " << 1.0*num_contained/num_model_updates << endl;
+	output_sum << "Fraction when true params contained " << num_contained << "/" << num_model_updates << " = " << 1.0*num_contained/num_model_updates << endl;
 }
 
 int main()
 {
-    int const num_beliefs = 20;
-    
     //test_random();
     //find_planning_params();
     //test_sampling();
@@ -3683,11 +3994,29 @@ int main()
     //       OPT?, MoM?
     // test_opt(true, true, "optimistic_rewards_halfx_9s.txt");
     
-	string prefix = "2sensortiger8590_ci" TO_STRING(EM_CI_SCALE);
-	// string prefix = "tworoom_ci" TO_STRING(EM_CI_SCALE);
+	test_params params;
+	params.use_opt = true;
+	params.use_mom = false;
+	params.use_sampling = true;
+	params.initial_seed = 745898798;
+	params.num_seeds = 100;
+	params.num_beliefs = 20;
+	params.at_least_eps = 20;
+	params.max_steps_per_ep = 50;
+	params.rand_start = 100;
+	params.update_interval = 100;
+	params.restarts = 10;
+	params.nextremes = 40;
 	
-    // test_opt(true, false, false, num_beliefs, prefix + "_episodic_rewards_everystep", prefix + "_episodic_cumrewards_everystep", prefix + "_episodic_actions_everystep");
-    test_opt(true, false, true, num_beliefs, prefix + "_sample_episodic_rewards_everystep", prefix + "_sample_episodic_cumrewards_everystep", prefix + "_sample_episodic_actions_everystep");
+	string domain_name = POMDP_NAME;
+	string prefix = domain_name + "_ci" TO_STRING(EM_CI_SCALE) + (params.use_sampling ? "_sampling" : "");
+	string out_reward = prefix + "_rewards";
+	string out_cumreward = prefix + "_cumrewards";
+	string out_actions = prefix + "_actions";
+	string out_rsa = prefix + "_rsa";
+	string out_summary = prefix + "_summary";
+	
+    test_opt(params, out_reward, out_cumreward, out_actions, out_rsa, out_summary);
     
 	//test_optimal_planning(num_beliefs, "2sensortiger8590_em_true_episodic_rewards_everystep", "2sensortiger8590_em_true_episodic_cumrewards_everystep", "2sensortiger8590_em_true_episodic_actions_everystep");
 	//test_optimal_planning(num_beliefs, "tworoom_em_true_episodic_rewards_everystep", "tworoom_em_true_episodic_cumrewards_everystep", "tworoom_em_true_episodic_actions_everystep");
@@ -3699,8 +4028,7 @@ int main()
     // test_opt(true, false, "tiger_all_opt_10_rewards", "tiger_all_opt_10_cumrewards", "tiger_all_opt_10_actions");
     //test_opt(false, false, "tiger_all_mean_rewards", "tiger_all_mean_cumrewards", "tiger_all_mean_actions");
     // test_opt(true, false, "newopt.txt", "newopt2.txt", "newopt3.txt");
-    
-    
+	
     //int fs[] = {300};
     //int fs[] = {40,60,80,100};
     //int fs[] = {60,70,80,90,100};

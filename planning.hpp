@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <random>
+#include <tuple>
 #include <armadillo>
 
 using namespace std;
@@ -115,6 +116,8 @@ struct Planning
     M &pomdp;
     
     // temporary variables for calculations
+	// transitions are [s][s'][a]
+	// obs are [s'][z][a]
 	cube tmp_t;
 	cube tmp_z;
     
@@ -124,10 +127,10 @@ struct Planning
     
     Planning(M &pomdp_, int nbeliefs)
     : num_beliefs(nbeliefs), pomdp(pomdp_),
-	  tmp_t(pomdp_.numstates, pomdp_.numactions, pomdp_.numstates),
-	  opt_t(pomdp_.numstates, pomdp_.numactions, pomdp_.numstates),
-	  tmp_z(pomdp_.numstates, pomdp_.numactions, pomdp_.numobs),
-	  opt_z(pomdp_.numstates, pomdp_.numactions, pomdp_.numobs)
+	  tmp_t(pomdp_.numstates, pomdp_.numstates, pomdp_.numactions),
+	  opt_t(pomdp_.numstates, pomdp_.numstates, pomdp_.numactions),
+	  tmp_z(pomdp_.numstates, pomdp_.numobs, pomdp_.numactions),
+	  opt_z(pomdp_.numstates, pomdp_.numobs, pomdp_.numactions)
     {
         //double init_alpha_val = pomdp.rmax/(1.0-pomdp.gamma);
         //double init_alpha_val = 0;
@@ -177,13 +180,13 @@ struct Planning
             double new_b = 0.0;
             for (size_t j = 0; j < src_belief.size(); ++j)
             {
-                new_b += src_belief[j]*opt_t(j,last_action,i);
+                new_b += src_belief[j]*opt_t(j,i,last_action);
             }
             if (new_b <= pow(10, -200))
             {
                 new_b = 0.0;
             }
-            dst_belief[i] = opt_z(i,last_action,last_obs)*new_b;
+            dst_belief[i] = opt_z(i,last_obs,last_action)*new_b;
             b_sum += dst_belief[i];
         }
         // cout << b_sum << endl;
@@ -416,7 +419,7 @@ struct Planning
             // initialize the real values to lower bounds first
             for (int j = 0; j < pomdp.numobs; ++j)
             {
-                tmp_z(i,action,j) = max(zm[i][action][j] - zw[i][action][j], 0.0);
+                tmp_z(i,j,action) = max(zm[i][action][j] - zw[i][action][j], 0.0);
             }
             // << "Lower bounds for action = " << action << " and s' = " << i << endl;
             // get the alpha_z(s')s over z
@@ -436,7 +439,7 @@ struct Planning
                 double sum_obs = 0.0;
                 for (int j = 0; j < pomdp.numobs; ++j)
                 {
-                    sum_obs += tmp_z(i,action,j);
+                    sum_obs += tmp_z(i,j,action);
                 }
                 // if allocated all probs, then stop
                 if (sum_obs >= 1.0)
@@ -444,14 +447,14 @@ struct Planning
                     break;
                 }
                 // otherwise, allocate as much as we can
-                double gap = zm[i][action][curr_obs] + zw[i][action][curr_obs] - tmp_z(i,action,curr_obs);
-                tmp_z(i,action,curr_obs) += min(1-sum_obs, gap);
+                double gap = zm[i][action][curr_obs] + zw[i][action][curr_obs] - tmp_z(i,curr_obs,action);
+                tmp_z(i,curr_obs,action) += min(1-sum_obs, gap);
             }
             // calculate the dot product
             for (int j = 0; j < pomdp.numobs; ++j)
             {
                 // keep updating the alpha vector
-                tilde[i] += tmp_z(i,action,j) * alphas[combo[j]].values[i];
+                tilde[i] += tmp_z(i,j,action) * alphas[combo[j]].values[i];
             }
         }
         
@@ -462,7 +465,7 @@ struct Planning
             // initialize the real values to lower bounds first
             for (int j = 0; j < pomdp.numstates; ++j)
             {
-                tmp_t(i,action,j) = max(tm[i][action][j] - tw[i][action][j], 0.0);
+                tmp_t(i,j,action) = max(tm[i][action][j] - tw[i][action][j], 0.0);
             }
             // get the order of the states such that tilde is in ascending order
             vector<int> sorted(pomdp.numstates, 0);
@@ -475,7 +478,7 @@ struct Planning
                 double sum_tran = 0.0;
                 for (int j = 0; j < pomdp.numstates; ++j)
                 {
-                    sum_tran += tmp_t(i,action,j);
+                    sum_tran += tmp_t(i,j,action);
                 }
                 // if allocated all probs, then stop
                 if (sum_tran >= 1.0)
@@ -483,14 +486,14 @@ struct Planning
                     break;
                 }
                 // otherwise, allocate as much as we can
-                double gap = tm[i][action][curr_state] + tw[i][action][curr_state] - tmp_t(i,action,curr_state);
-                tmp_t(i,action,curr_state) += min(1-sum_tran, gap);
+                double gap = tm[i][action][curr_state] + tw[i][action][curr_state] - tmp_t(i,curr_state,action);
+                tmp_t(i,curr_state,action) += min(1-sum_tran, gap);
             }
             // keep updating the alpha vector
             values[i] = 0.0;
             for (int j = 0; j < pomdp.numstates; ++j)
             {
-                values[i] += tmp_t(i,action,j) * tilde[j];
+                values[i] += tmp_t(i,j,action) * tilde[j];
             }
         }
         
