@@ -17,7 +17,6 @@
 #define EST_O true
 #define EST_RO (EM_USE_RO and true)
 #define EST_R true
-#define EM_CI_SCALE 0.0
 
 #define TO_STRING_HELPER(x) #x
 #define TO_STRING(x) TO_STRING_HELPER(x)
@@ -100,6 +99,9 @@ struct test_params
 	bool use_opt;
 	bool use_mom;
 	bool use_sampling;
+	bool use_opt_ro;
+	bool use_weissman;
+	bool sample_opt_ro; // whether to use extreme points sampling to try to find opt_ro
 	unsigned initial_seed;
 	unsigned num_seeds;
 	unsigned num_beliefs;
@@ -109,14 +111,19 @@ struct test_params
 	unsigned update_interval;
 	unsigned restarts;
 	unsigned nextremes;
+	double em_ci_scale;
+	double em_ci_r_scale; // just for when computing opt_r directly without ro
 	
 	test_params():
-		use_opt(true), use_mom(false), use_sampling(false),
+		use_opt(true), use_mom(false), use_sampling(false), use_opt_ro(true),
+		use_weissman(true),
+		sample_opt_ro(false),
 		initial_seed(745898798), num_seeds(10),
 		num_beliefs(20),
 		at_least_eps(10), max_steps_per_ep(50),
 		rand_start(100), update_interval(100), restarts(10),
-		nextremes(10)
+		nextremes(10),
+		em_ci_scale(1.0), em_ci_r_scale(1.0)
 	{}
 };
 
@@ -183,6 +190,17 @@ void print_matrix(T const (&arr)[A][B])
         for (size_t y = 0; y < B; ++y)
         {
             cout << x << "," << y << " | " << fixed << setw(9) << arr[x][y] << endl;
+        }
+    }
+}
+
+void print_matrix(mat const (&arr))
+{
+    for (size_t x = 0; x < arr.n_rows; ++x)
+    {
+        for (size_t y = 0; y < arr.n_cols; ++y)
+        {
+            cout << x << "," << y << " | " << fixed << setw(9) << arr(x,y) << endl;
         }
     }
 }
@@ -361,6 +379,50 @@ void convert_reward_obs(T const (&arr)[A][B][C], T const (&ro_map)[C], Mat<T> & 
 	}
 }
 
+// compute optimistic instantiation of reward obs
+// simply keep giving weight to the higher rewards
+template <class T, size_t A, size_t B, size_t C>
+void compute_opt_ro(T const (&est_ro)[A][B][C], T const (&err_ro)[A][B][C], T const (&ro_map)[C], T (&out_ro)[A][B][C])
+{
+	// first sort the indices of ro_map from largest value to smallest value
+	vector<tuple<T,uword> > indices;
+	for (uword i = 0; i < TNR; ++i)
+	{
+		indices.push_back(make_tuple(ro_map[i], i));
+	}
+	sort(indices.begin(), indices.end());
+	reverse(indices.begin(), indices.end());
+	
+    for (int i = 0; i < A; ++i)
+    {
+        for (int j = 0; j < B; ++j)
+        {
+            // first set the elements to the lower bounds to give some leeway
+            T lsum = 0;
+            for (int k = 0; k < C; ++k)
+            {
+                T lb = max(0.0, est_ro[i][j][k] - err_ro[i][j][k]);
+                out_ro[i][j][k] = lb;
+                lsum += lb;
+            }
+            // then give as much weight as possible to each of the picks in turn
+            T leeway = 1 - lsum;
+            for (int k = 0; k < C; ++k)
+            {
+                if (leeway <= 0)
+                {
+                    break; // done
+                }
+                uword curr_ix = get<1>(indices[k]);
+                T ub = min(1.0, est_ro[i][j][curr_ix] + err_ro[i][j][curr_ix]);
+                T avail = min(leeway, ub - out_ro[i][j][curr_ix]);
+                out_ro[i][j][curr_ix] += avail;
+                leeway -= avail;
+            }
+        }
+    }
+}
+
 template <class T, size_t A, size_t B, size_t C>
 void simplify_reward_obs(T const (&arr)[A][B][C], T const (&ro_map)[C], T (&out_arr)[A][B])
 {
@@ -376,6 +438,22 @@ void simplify_reward_obs(T const (&arr)[A][B][C], T const (&ro_map)[C], T (&out_
 			out_arr[curr_s][curr_a] = expected_r;
 		}
 	}
+}
+
+template <class T, size_t A, size_t B>
+bool reward_leq(T const (&a1)[A][B], T const (&a2)[A][B])
+{
+	for (int i = 0; i < A; ++i)
+	{
+		for (int j = 0; j < B; ++j)
+		{
+			if (a1[i][j] > a2[i][j])
+			{
+				return false;
+			}
+		}
+	}
+	return true;
 }
 
 double l2_dist_squared(double const (&a1)[TNS][TNA][TNS], double const (&a2)[TNS][TNA][TNS])
@@ -1730,12 +1808,12 @@ void initialize(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&est_o)[TN
 }
 
 // uses reward as obs
-double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA][TNS], double (&est_o)[TNS][TNA][TNO], double (&err_o)[TNS][TNA][TNO], double (&est_ro)[TNS][TNA][TNR], double (&err_ro)[TNS][TNA][TNR], double (&est_r)[TNS][TNA], double (&opt_r)[TNS][TNA], double scale_t = 1.0, double scale_o = 1.0, double scale_ro = 1.0, double scale_r = 1.0)
+double em(test_params const &params, POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA][TNS], double (&est_o)[TNS][TNA][TNO], double (&err_o)[TNS][TNA][TNO], double (&est_ro)[TNS][TNA][TNR], double (&err_ro)[TNS][TNA][TNR], double (&est_r)[TNS][TNA], double (&opt_r)[TNS][TNA], double scale_t = 1.0, double scale_o = 1.0, double scale_ro = 1.0, double scale_r = 1.0)
 {
     vector<double> pi = pomdp.start;
     
     const int num_iters = 400;
-    const double iter_diff_threshold = 0.00001;
+    const double iter_diff_threshold = 0.0001;
     for (int iters = 0; iters < num_iters; ++iters)
     {
 
@@ -2012,7 +2090,7 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
         // some parameter for the confidence intervals
         double const confidence_alpha = 0.99;
         // scaling for the confidence intervals
-        double const ci_uniform_scale = EM_CI_SCALE;
+        double const ci_uniform_scale = params.em_ci_scale;
         
         // keep track of previous estimates to diff with new estimates
         double prev_est_t[TNS][TNA][TNS];
@@ -2048,7 +2126,15 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
                             }
                         }
                     }
-                    double ci_radius = fake_count >= 1.0 ? ci_uniform_scale * sqrt((0.5/(scale_t * fake_count))*log (2.0/confidence_alpha)) : 1.0;
+					double ci_radius = 1.0;
+					if (params.use_weissman)
+					{
+						ci_radius = fake_count >= 1.0 ? ci_uniform_scale * sqrt(2.0*(TNS - log(confidence_alpha))/(scale_t * fake_count)) : 1.0;
+					}
+					else
+					{
+						ci_radius = fake_count >= 1.0 ? ci_uniform_scale * sqrt((0.5/(scale_t * fake_count))*log (2.0/confidence_alpha)) : 1.0;
+					}
                     
                     // for normalizing the transitions
                     double sum = 0.0;
@@ -2107,10 +2193,17 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
                             }
                         }
                     }
-
-                    double ci_radius = fake_count >= 1 ? ci_uniform_scale * sqrt((0.5/(scale_o * fake_count))*log (2.0/confidence_alpha)) : 1.0;
-                    
-                    // for normalizing the obs
+                    double ci_radius = 1.0;
+					if (params.use_weissman)
+					{
+						ci_radius = fake_count >= 1.0 ? ci_uniform_scale * sqrt(2.0*(TNO - log(confidence_alpha))/(scale_o * fake_count)) : 1.0;
+					}
+					else
+					{
+						ci_radius = fake_count >= 1.0 ? ci_uniform_scale * sqrt((0.5/(scale_o * fake_count))*log (2.0/confidence_alpha)) : 1.0;
+					}
+					
+					// for normalizing the obs
                     double sum = 0.0;
                     // compute the expected obs
                     for (int z = 0; z < TNO; ++z)
@@ -2167,9 +2260,16 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
                             }
                         }
                     }
-                    double ci_radius = fake_count >= 1.0 ? ci_uniform_scale * sqrt((0.5/(scale_ro * fake_count))*log (2.0/confidence_alpha)) : 1.0;
-                    
-                    // for normalizing the reward obs
+                    double ci_radius = 1.0;
+					if (params.use_weissman)
+					{
+						ci_radius = fake_count >= 1.0 ? ci_uniform_scale * sqrt(2.0*(TNR - log(confidence_alpha))/(scale_ro * fake_count)) : 1.0;
+					}
+					else
+					{
+						ci_radius = fake_count >= 1.0 ? ci_uniform_scale * sqrt((0.5/(scale_ro * fake_count))*log (2.0/confidence_alpha)) : 1.0;
+					}
+					// for normalizing the reward obs
                     double sum = 0.0;
                     // compute the expected reward obs
                     for (int z = 0; z < TNR; ++z)
@@ -2224,7 +2324,7 @@ double em(POMDP &pomdp, double (&est_t)[TNS][TNA][TNS], double (&err_t)[TNS][TNA
                             }
                         }
                     }
-                    double ci_radius = fake_count >= 1.0 ? ci_uniform_scale * REWARD_GAP*sqrt((0.5/(scale_r * fake_count))*log (2.0/confidence_alpha)) : REWARD_GAP;
+                    double ci_radius = fake_count >= 1.0 ? params.em_ci_r_scale * REWARD_GAP*sqrt((0.5/(scale_r * fake_count))*log (2.0/confidence_alpha)) : REWARD_GAP;
                     
                     // compute expected reward
                     if (gamma_action_sum[x][y] <= TOOSMALL)
@@ -3101,6 +3201,9 @@ void test_opt(test_params const & params, string const &reward_out, string const
 	unsigned num_model_updates = 0;
 	unsigned num_opt_samples = 0;
 	unsigned num_contained = 0; // number of times EM+CI contain true params
+	uword num_rsa_opt = 0;
+	uword num_rsa_alt_opt = 0;
+	uword num_opt_ro_opt = 0; // compare opt_ro's opt_r to sampled version
 
     vector<double> rs(steps, 0.0);
     vector<double> eprs(1, 0.0);
@@ -3114,20 +3217,21 @@ void test_opt(test_params const & params, string const &reward_out, string const
     double err_t[TNS][TNA][TNS];
     double zero_t[TNS][TNA][TNS];
     zero_out(zero_t);
-	cube est_transitions(TNS,TNS,TNA);
+	// cube est_transitions(TNS,TNS,TNA);
     
     double est_o[TNS][TNA][TNO];
     double err_o[TNS][TNA][TNO];
     double zero_o[TNS][TNA][TNO];
     zero_out(zero_o);
-	cube est_observations(TNS,TNO,TNA);
+	// cube est_observations(TNS,TNO,TNA);
     
     double est_ro[TNS][TNA][TNR];
     double err_ro[TNS][TNA][TNR];
     
     double est_r[TNS][TNA];
     double opt_r[TNS][TNA];
-	mat est_rewards(TNS,TNA);
+	double opt_r_alt[TNS][TNA];
+	// mat est_rewards(TNS,TNA);
 
     double ro_map[TNR];
 
@@ -3241,7 +3345,7 @@ void test_opt(test_params const & params, string const &reward_out, string const
         for (int iter = 0; iter < steps; iter++) {
             ++curr_ep_step;
             ++curr_step;
-             //cout << "---------- Iteration " << iter+1 << " ----------" << endl;
+            // cout << "---------- Iteration " << iter+1 << " ----------" << endl;
             //cout << "Curr Belief -- ";
             //print_vector(plan.curr_belief);
             // t = clock();
@@ -3289,15 +3393,17 @@ void test_opt(test_params const & params, string const &reward_out, string const
 					// only works for tiger
 					// output first listen, then open left, then open right
 					// have to hack to accomodate for nonidentifiability
-					int s_left = opt_r[0][1] >= opt_r[0][2] ? 0 : 1;
-					int s_right = 1-s_left;
-					for (int a = 0; a < TNA; ++a)
+					if (TNA == 3)
 					{
-						output_rsa << opt_r[s_left][a] << " ";
-						output_rsa << opt_r[s_right][a] << " ";
+						int s_left = opt_r[0][1] >= opt_r[0][2] ? 0 : 1;
+						int s_right = 1-s_left;
+						for (int a = 0; a < TNA; ++a)
+						{
+							output_rsa << opt_r[s_left][a] << " ";
+							output_rsa << opt_r[s_right][a] << " ";
+						}
+						output_rsa << "\n";
 					}
-					output_rsa << "\n";
-					
                 }
                 else
                 {
@@ -3315,10 +3421,11 @@ void test_opt(test_params const & params, string const &reward_out, string const
 					cube true_t(TNS,TNS,TNA);
 					cube true_z(TNS,TNO,TNA);
 					mat true_r(TNS,TNA);
-					mat true_r_alt(TNS,TNA);
+					mat true_r_orig(TNS,TNA);
 					convert_transitions(pomdp.t, true_t);
 					convert_observations(pomdp.o, true_z);
 					convert_reward(opt_r, true_r);
+					true_r_orig = true_r;
 					
 					dummy_plan.plan(true_t, true_z, true_r, 40);
 					tie(dummy_action, dummy_value) = dummy_plan.find_action(curr_belief);
@@ -3332,20 +3439,26 @@ void test_opt(test_params const & params, string const &reward_out, string const
                         
                         sample_extremes(est_t, err_t, extreme_t);
                         sample_extremes(est_o, err_o, extreme_o);
-                        sample_extremes(est_ro, err_ro, extreme_ro);
+						if (params.sample_opt_ro and params.use_opt_ro)
+						{
+							// only if using opt ro and want to sample then do it
+							sample_extremes(est_ro, err_ro, extreme_ro);
+							double extreme_r[TNS][TNA];
+							simplify_reward_obs(extreme_ro, pomdp.ro_map, extreme_r);
+							convert_reward(extreme_r, true_r);
+						}
                         
 						convert_transitions(extreme_t, true_t);
 						convert_observations(extreme_o, true_z);
-						convert_reward_obs(extreme_ro, pomdp.ro_map, true_r_alt);
 						
-                        dummy_plan.plan(true_t, true_z, true_r_alt, 40);
+                        dummy_plan.plan(true_t, true_z, true_r, 40);
 						tie(dummy_action, dummy_value) = dummy_plan.find_action(curr_belief);
                         
                         if (dummy_value > curr_best_value)
                         {
 							best_extreme_t = true_t;
 							best_extreme_o = true_z;
-							best_extreme_r = true_r_alt;
+							best_extreme_r = true_r;
                             curr_best_value = dummy_value;
                         }
                     }
@@ -3363,19 +3476,26 @@ void test_opt(test_params const & params, string const &reward_out, string const
 					plan.opt_t = best_extreme_t;
 					plan.opt_z = best_extreme_o;
 					
+					// check against original opt_r
+					num_opt_ro_opt += all( vectorise(true_r_orig) >= vectorise(best_extreme_r) );
+					
 					// output to model
 					// only works for tiger
 					// output first listen, then open left, then open right
 					// have to hack to accomodate for nonidentifiability
-					mat const & print_r = best_extreme_r; // true_r/best_extreme_r
-					int s_left = print_r(0,1) >= print_r(0,2) ? 0 : 1;
-					int s_right = 1-s_left;
-					for (int a = 0; a < TNA; ++a)
+					if (TNA == 3)
 					{
-						output_rsa << print_r(s_left,a) << " ";
-						output_rsa << print_r(s_right,a) << " ";
+						// simple hack to check for TIGER domain for now
+						mat const & print_r = best_extreme_r;
+						int s_left = print_r(0,1) >= print_r(0,2) ? 0 : 1;
+						int s_right = 1-s_left;
+						for (int a = 0; a < TNA; ++a)
+						{
+							output_rsa << print_r(s_left,a) << " ";
+							output_rsa << print_r(s_right,a) << " ";
+						}
+						output_rsa << "\n";
 					}
-					output_rsa << "\n";
 					
 					if (false)
 					{
@@ -3389,6 +3509,8 @@ void test_opt(test_params const & params, string const &reward_out, string const
 						print_three(est_o, err_o, pomdp.o);
 						cout << "opt z (s,a,o)" << endl;
 						print_matrix(best_extreme_o);
+						cout << "estimated reward obs (s,a,r) - ci - true params" << endl;
+						print_three(est_ro, err_ro, pomdp.ro);
 						cout << "estimated rewards (s,a) - opt r - true params" << endl;
 						print_three(est_r, opt_r, pomdp.r);
 						cout << "planning\n";
@@ -3403,14 +3525,11 @@ void test_opt(test_params const & params, string const &reward_out, string const
                 mom_updated[1] = false;
                 //plan.print_points();
                 
-                // if (iter % 20 == 0 and iter > 0 and iter <= 300)
-                // if (true)
 				if (false)
 				{
 					cout << "---------- Iteration " << iter << " ----------" << endl;
 					// cout << "Log likelihood: " << ll << endl;
 					// cout << "True Log likelihood: " << likelihood(pomdp, pomdp.o, pomdp.t) << endl;
-					cout << "model updated" << endl;
 					cout << "esimated transitions (s,a,s') - ci - true params" << endl;
 					print_three(est_t, err_t, pomdp.t);
 					cout << "opt t (s,a,s')" << endl;
@@ -3439,7 +3558,7 @@ void test_opt(test_params const & params, string const &reward_out, string const
 				}
             }
             assert (next_action >= 0 and next_action < TNA);
-            
+			
             // advance the pomdp
             if (iter < params.rand_start)
             {
@@ -3523,7 +3642,7 @@ void test_opt(test_params const & params, string const &reward_out, string const
                 for (int restart = 0; restart < params.restarts; restart++)
                 {
                     initialize(pomdp, tmp_est_t, tmp_est_o, tmp_est_ro);
-                    ll = em(pomdp, tmp_est_t, tmp_err_t, tmp_est_o, tmp_err_o, tmp_est_ro, tmp_err_ro, tmp_est_r, tmp_opt_r, scale_t, scale_o, scale_ro, scale_r);
+                    ll = em(params, pomdp, tmp_est_t, tmp_err_t, tmp_est_o, tmp_err_o, tmp_est_ro, tmp_err_ro, tmp_est_r, tmp_opt_r, scale_t, scale_o, scale_ro, scale_r);
                     if (ll > best_ll)
                     {
                         // cout << best_ll << " " << ll << endl;
@@ -3563,12 +3682,29 @@ void test_opt(test_params const & params, string const &reward_out, string const
                     
                 }
 				
+				// use opt_ro to compute opt_r
+				double best_ro[TNS][TNA][TNR];
+				compute_opt_ro(est_ro, err_ro, pomdp.ro_map, best_ro);
+				copy_matrix(opt_r, opt_r_alt);
+				if (params.use_opt_ro)
+				{
+					// use it
+					simplify_reward_obs(best_ro, pomdp.ro_map, opt_r);
+				}
+				else
+				{
+					simplify_reward_obs(best_ro, pomdp.ro_map, opt_r_alt);
+				}
+				
                 model_updated = true;
 				
 				bool is_contained = tworoom_is_contained(pomdp, est_t, err_t, est_o, err_o, est_ro, err_ro, est_r, opt_r, false, false);
 				is_contained |= tworoom_is_contained(pomdp, est_t, err_t, est_o, err_o, est_ro, err_ro, est_r, opt_r, true, false);
 				is_contained |= tworoom_is_contained(pomdp, est_t, err_t, est_o, err_o, est_ro, err_ro, est_r, opt_r, false, true);
 				is_contained |= tworoom_is_contained(pomdp, est_t, err_t, est_o, err_o, est_ro, err_ro, est_r, opt_r, true, true);
+				
+				num_rsa_opt += reward_leq(opt_r_alt, opt_r);
+				num_rsa_alt_opt += reward_leq(opt_r, opt_r_alt);
 				
 				++num_model_updates;
 				num_contained += is_contained ? 1 : 0;
@@ -3980,8 +4116,20 @@ void test_opt(test_params const & params, string const &reward_out, string const
 	{
 		cout << "Fraction when found opt sample " << num_opt_samples << "/" << num_model_updates << " = " << 1.0*num_opt_samples/num_model_updates << endl;
 	}
+	
+	if (params.use_opt_ro and params.sample_opt_ro)
+	{
+		cout << "Fraction when opt_ro is better than sampled ro " << num_opt_ro_opt << "/" << num_model_updates << " = " << 1.0*num_opt_ro_opt/num_model_updates << endl;
+	}
+	
 	cout << "Fraction when true params contained " << num_contained << "/" << num_model_updates << " = " << 1.0*num_contained/num_model_updates << endl;
 	output_sum << "Fraction when true params contained " << num_contained << "/" << num_model_updates << " = " << 1.0*num_contained/num_model_updates << endl;
+	
+	cout << "Fraction when rsa is more opt " << num_rsa_opt << "/" << num_model_updates << " = " << 1.0*num_rsa_opt/num_model_updates << endl;
+	output_sum << "Fraction when rsa is more opt " << num_rsa_opt << "/" << num_model_updates << " = " << 1.0*num_rsa_opt/num_model_updates << endl;
+
+	cout << "Fraction when rsa_alt is more opt " << num_rsa_alt_opt << "/" << num_model_updates << " = " << 1.0*num_rsa_alt_opt/num_model_updates << endl;
+	output_sum << "Fraction when rsa_alt is more opt " << num_rsa_alt_opt << "/" << num_model_updates << " = " << 1.0*num_rsa_alt_opt/num_model_updates << endl;
 }
 
 int main()
@@ -3996,8 +4144,11 @@ int main()
     
 	test_params params;
 	params.use_opt = true;
-	params.use_mom = false;
+	params.use_mom = false; // pretty sure it's broken right now
 	params.use_sampling = true;
+	params.use_opt_ro = true;
+	params.use_weissman = true;
+	params.sample_opt_ro = true;
 	params.initial_seed = 745898798;
 	params.num_seeds = 100;
 	params.num_beliefs = 20;
@@ -4007,9 +4158,19 @@ int main()
 	params.update_interval = 100;
 	params.restarts = 10;
 	params.nextremes = 40;
+	params.em_ci_scale = 0.3;
+	params.em_ci_r_scale = 1.0;
 	
 	string domain_name = POMDP_NAME;
-	string prefix = domain_name + "_ci" TO_STRING(EM_CI_SCALE) + (params.use_sampling ? "_sampling" : "");
+	string prefix = domain_name
+		+ "_ci" + to_string(params.em_ci_scale).substr(0,4)
+		+ "_r_ci" + to_string(params.em_ci_r_scale).substr(0,4)
+		+ (params.use_sampling ? "_sampling" : "")
+		+ (params.use_opt_ro ? "" : "_no_opt_ro")
+		+ ((params.use_opt_ro and params.sample_opt_ro)? "_spl_opt_ro" : "")
+		+ (params.use_weissman ? "" : "_no_weissman")
+		+ "_rand" + to_string(params.rand_start)
+	;
 	string out_reward = prefix + "_rewards";
 	string out_cumreward = prefix + "_cumrewards";
 	string out_actions = prefix + "_actions";
