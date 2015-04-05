@@ -144,6 +144,107 @@ So to make sure all of that is $\leq \epsilon$, we should let $\epsilon_1 \leq \
 O\left(\frac{\zeta(\epsilon,\delta)TV_{max}}{\epsilon}\log\left(\frac{1}{\delta}\right)\right)
 \end{align}
 
+
+
+\section{Main Episodic Theorem With only first step with actions}
+
+\subsection{Setup}
+
+Let the episode length be $T$. Let $b_0$ be the initial belief state of each episode. Let $V_{\cdot}^{\cdot}(\cdot)$ notation denote the finite horizon value function with horizon $T$. Let $\mathcal{A}$ be a POMDP algorithm such that it maintains a set $K_k$ of actions at episode $k$. Let $A_K$ denote the event that an action not in $K_k$ is taken in the next $T$ steps. $K_k$ can only have actions added to it, and only when $A_K$ occurs. Let $M$ denote the true underlying POMDP. Let $M_{K_k}$ denote the optimistic, known POMDP, where parameters are equal to the true POMDP in actions in the known set, and for actions not in the known set, are set to something else (to be determined later). Then $\mathcal{A}$ maintains an approximate optimistic known POMDP $\widehat{M}_{K_k}$ where for actions in unknown set have identical parameters to $M_{K_k}$, but for actions in the known set have only close estimates to $M_{K_k}$. $M_{K_k}$ can only change when $A_K$ occurs. Let $\widehat{\pi}_k$ be the policy that $\mathcal{A}$ has at the beginning of the episode $k$, which is the optimal policy for $\widehat{M}_{K_k}$. Then suppose the following holds with probability $1-\delta$:
+
+\begin{enumerate}
+	\item $V^{\widehat{\pi}_k}_{\widehat{M}_{K_k}}(b_0) \geq V^{*}_M(b_0) - \epsilon/3$ (optimism)
+	\item $V^{\widehat{\pi}_k}_{M_{K_t}}(b_0) \geq V^{\widehat{\pi}_k}_{\widehat{M}_{K_k}}(b_0) -\epsilon/3$ (accuracy)
+	\item The total number of escape events from $K_k$ over all episodes is bounded by $\zeta(\epsilon,\delta)$ (learning complexity)
+\end{enumerate}
+
+Then
+\begin{align}
+	V^\mathcal{A}_{M}(b_0) &\geq V^{*}_{M}(b_0) - \epsilon
+\end{align}
+for all but
+\begin{align}
+	O\left(\frac{\zeta(\epsilon,\delta)V_{max}}{\epsilon}\log\left(\frac{1}{\delta}\right)\right)
+\end{align}
+episodes with probability $1-\delta$
+
+\subsection{Proof}
+
+Let $\widehat{\pi}_k$ be our algorithm's policy at the start of episode $k$ i.e. the optimal policy for $\widehat{M}_{K_k}$. Let $\pi_k$ be the optimal policy for $M_{K_k}$. Then from the generalized induced inequality (keeping in mind that the value function is the finite horizon value function with horizon $T$):
+\begin{align}
+	V^{\mathcal{A}}_M(b_0) &\geq V^{\widehat{\pi}}_{M_{K_t}}(b_0) - V_{max}\Pr(A_K)\\
+	&= V^{\widehat{\pi}}_{M_{K_k}}(b_0) - V_{max}\epsilon_1
+\end{align}
+then by the accuracy condition
+\begin{align}
+	V^{\mathcal{A}}_M(b_0) \geq V^{\widehat{\pi}_k}_{\widehat{M}_{K_k}}(b_0) - V_{max}\epsilon_1 - \epsilon/3
+\end{align}
+and from optimism
+\begin{align}
+	V^{\mathcal{A}}_M(b_0) \geq V^{*}_{M}(b_0) - V_{max}\epsilon_1 - 2\epsilon/3
+\end{align}
+
+So to make sure all of that is $\leq \epsilon$, we should let $\epsilon_1 \leq \epsilon/(4V_{max})$. So that means by chernoff-hoeffding bounds (Lemma 56 from Lihong's thesis), the number of episodes when the escape probability is greater than that is bounded with high probability by
+\begin{align}
+	O\left(\frac{\zeta(\epsilon,\delta)V_{max}}{\epsilon}\log\left(\frac{1}{\delta}\right)\right)
+\end{align}
+
+\subsection{Satisfying the Optimism Condition}
+
+Assume we have a procedure that given valid confidence intervals for the parameters of $T,Z,R$, we can compute an optimistic instantiation $T^{opt},Z^{opt},R^{opt}$ such that $V^*_{M^{opt}} \geq V^*_{M}$. Note that $M^{opt} = \widehat{M}_{K_k}$, so we get
+\begin{align}
+V^{\widehat{\pi}_k}_{\widehat{M}_{K_k}}(b_0) = V^*_{M^{opt}}(b_0) &\geq V^{*}_M(b_0) \\
+\implies V^{\widehat{\pi}_k}_{\widehat{M}_{K_k}}(b_0) &\geq V^{*}_M(b_0) - \epsilon/3
+\end{align}
+
+\subsection{Satisfying the Accuracy Condition}
+
+Target is $V^{\widehat{\pi}_k}_{M_{K_t}}(b_0) \geq V^{\widehat{\pi}_k}_{\widehat{M}_{K_k}}(b_0) -\epsilon/3$.
+
+We use the simulation lemmas from Sensitivity Analysis of POMDP Value Functions by Ross et al. Note that $\widehat{\pi}_k = \pi^*_{\widehat{M}_{K_k}}$ i.e. it's the optimal policy of the approximate optimistic known POMDP. Theorem 3 of the paper implies
+\begin{align}
+V^{\widehat{\pi}_k}_{M_{K_k}}(b) \geq V^{\widehat{\pi}_k}_{\widehat{M}_{K_k}}(b_0) - \frac{\Delta R}{1-\gamma} - \frac{\gamma |\widehat{R}|_\infty}{(1-\gamma)^2}\min(2, \Delta S |S| + \Delta Z |Z|)
+\end{align}
+where $|R - \widehat{R}|_\infty \leq \Delta R$ and the other $\Delta$'s are similar. So to satisfy the accuracy condition, we can apply this directly to get that
+\begin{align}
+\frac{\Delta R}{1-\gamma} + \frac{\gamma |\widehat{R}|_\infty}{(1-\gamma)^2}\min(2, \Delta S |S| + \Delta Z |Z|) \leq \epsilon/3
+\end{align}
+So you can see that the error is linear in the error of the parameters. Simplifying a lot we can get that as long as $\Delta S |S| + \Delta Z |Z| \leq 2$, and $\Delta (\cdot) \leq \epsilon_2$
+\begin{align}
+\epsilon_2 \left(\frac{\gamma R_{max} (|S| + |Z|) + (1-\gamma)}{(1-\gamma)^2} \right) \leq \frac{\epsilon}{3} \\
+\implies \epsilon_2 \left(\frac{R_{max} (|S| + |Z|) }{(1-\gamma)^2} \right) \leq \frac{\epsilon}{3} \\
+\implies \epsilon_2 \leq \frac{\epsilon(1-\gamma)^2}{3 R_{max}(|S| + |Z|)} \\
+\end{align}
+Note that the bounds here assume infinite discounted reward, whereas for the episodic domain we assume finite discounted reward (maybe will try undiscounted later). However the bounds for finite discounted reward hold because all the bounds hold for all finite timesteps $t$ (see proof of Theorem 1 as a reference).
+
+\subsection{Satisfying the Learning Condition}
+
+Looking at the MoM for HMM paper, Theorem 3.1 gives us finite sample bounds on the accuracy of the estimated view for an HMM. The bound is something like $\frac{1}{\sqrt{n}} \leq C_{pomdp}(\delta) \epsilon$ By proposition 4.2, the observation matrix is directly estimated, and so it seems like it uses a similar bound. The transition matrix is a few matrix multiplications and an inverse away from the observation matrix, however it seems possible that the error is linear if the error is small (but of course need to check this).
+
+From the MoM notes on the google doc, it seems like in addition to having a triple of observations at the beginning of a sequence, there are specific restrictions on the actions that can be taken.
+
+Lots more to check...
+
+So from a higher level point of view, let's say that you can only use the beginning of sequences, which means you can only use the prefix of an episode for a single sample. So every sample's cost is one episode. Let's also assume that Theorem 3.1 holds, and that the POMDP parameter errors are linear in the predicted view's errors. So the confidence intervals are the typical $O \left( \frac{1}{\sqrt{n_a}} \right)$ where $n_a$ in this case is the number of times action $a$ was taken.
+
+\subsection{Putting it all together}
+
+Assume that
+\begin{align}
+\Delta T \leq \frac{C_{pomdp}(\delta)}{\sqrt{n_a}}
+\end{align}
+and similarly for $\Delta Z$ and $\Delta R$. Then combining this with the previous accuracy condition for how close the parameters for known actions need to be, we have
+\begin{align}
+\frac{C_{pomdp}(\delta)}{\sqrt{n_a}} &\leq \frac{\epsilon(1-\gamma)^2}{3 R_{max}(|S| + |Z|)} \\
+\implies n_a &\geq \frac{9 C_{pomdp}^2(\delta) R_{max}^2(|S| + |Z|)^2}{\epsilon^2(1-\gamma)^4} \\
+\implies \zeta(\epsilon, \delta) &= \frac{9 |A| C_{pomdp}^2(\delta) R_{max}^2(|S| + |Z|)^2}{\epsilon^2(1-\gamma)^4}
+\end{align}
+then combining this with the main theorem we get
+\begin{align}
+	O\left(\frac{|A| C_{pomdp}^2(\delta) R_{max}^2(|S| + |Z|)^2V_{max}}{\epsilon^3(1-\gamma)^4}\log\left(\frac{1}{\delta}\right)\right)
+\end{align}
+as the bound for how many bad episodes.
+
 \section{Applying the Theorem}
 
 \subsection{POMDP as MDP over histories in an Episodic Task}

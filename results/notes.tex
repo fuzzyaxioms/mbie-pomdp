@@ -30,29 +30,121 @@
 \end{align}
 so $\epsilon$ is the radius of the confidence interval.
 
-\section{EM with rewards}
+\section{EM}
+
+\subsection{Setup}
 
 Let the transition matrix be $T(s'|s,a) = p(s'|s,a)$. Let the observation matrix be $Z(z|s',a)=p(z|s',a)$. Let the expected reward be $R(s,a)$, and let the reward matrix (when using rewards as observations) be $R(r|s,a)=p(r|s,a)$. Let $T_{\lambda},Z_\lambda,R_\lambda$ be the matrices according to the model $\lambda$.
 
-If we just want to estimate rewards (without treating them as observations) then we can do it very simply
-
+I'm going to use zero-based indexing to make it easier to code up. The setup is that there is an initial state $s_0$. That is the first timestep. Then the agent takes an action $a_0$, the agent receives a reward signal $r_0$, and then the system steps to time $1$ with $s_1$, giving back $z_1$ i.e. the observation for state $s_1$. The agent can only update parameters in between actions, which means there's a discrepancy between the reward observed and the observations seen. A history $h(n)$ in this scenario is then defined as being all of the obs up to but not including running action $a_n$. In other words, after $n$ actions have been taken. The reason for this is to have $h(0)$ be the empty history, and $h(n+1)$ is the time point right after executing action $a_n$ but before $a_{n+1}$:
 \begin{align}
-\tilde{R}(s,a) &= \frac{\sum_{t=1}^{T}\gamma_{s}(t)\delta(a_t,a) r_t}{\sum_{t=1}^{T}\gamma_{s}(t)\delta(a_t,a)}
+h(0) &= \emptyset \\
+h(1) &= a_0 r_0 z_1 \\
+h(2) &= a_0 r_0 z_1 a_1 r_1 z_2 \\
+h(n+1) &= h(n) a_{n} r_{n} z_{n+1} \\
+h(n+1) &= a_{0:n} r_{0:n} z_{1:n+1} \\
+\end{align}
+Alternatively, we can combine the reward and observations together into a joint observations which will just be $W(w|s,a,s')$ and depend on both the current state and next state. This is just $W(w|s,a,s') = p(r,z|s,a,s') = p(r | s,a)p(z|a,s')$ which nicely factors. This simplifies the definitions and equations a little bit. So now there is a single observation associated with every action, and you get
+\begin{align}
+h(0) &= \emptyset \\
+h(1) &= a_0 w_0 \\
+h(2) &= a_0 w_0 a_1 w_1 \\
+h(n+1) &= h(n) a_{n} w_n \\
+h(n+1) &= a_{0:n} w_{0:n} \\
+\end{align}
+However it actually makes every else much more complicated, so we will keep the first representation. Remember that there is one more state that happens right after the last action, so the actual state sequence for $h(n)$ is $s_{0:n}$. So that means for $h(n+1)$, there are only $n$ actions and observations but actually $n+1$ latent states that need to be inferred by $\gamma$. So $\gamma$ goes from $\gamma(0)$ to $\gamma(n+1)$.
+
+\subsection{Alpha, Beta, Gamma}
+
+Start with a history $h(n)$. Also we have an initial state distribution $\pi$. What we want is $\gamma_t(s)$, the probability of being that state at time $t$ given all of the actions and observations in the trajectory. We start with the $\alpha_t(s)$, which is the probability of seeing the observations so far and that the current state is $s$ given the actions (so far). The first state and last state of the history may need special treatment.
+\begin{align}
+\alpha_{0}(s') &= p(r_{0:0}, z_{1:0}, s_{0} = s' | a_{0:0}) \\
+&= p(r_{0:0}, s_{0} = s' | a_{0:0}) \\
+&= p(r_{0} | s_{0} = s', a_{0}) p(s_{0} = s' | a_{0}) \\
+&= R(r_{0} | s',a_{0}) \pi(s') \\
+\alpha_{t}(s') &= p(r_{0:t}, z_{1:t}, s_{t} = s' | a_{0:t}) \quad 0 < t < n\\
+&= \sum_s p(r_{0:t}, z_{1:t}, s_{t} = s', s_{t-1} = s | a_{0:t}) \\
+&= \sum_s p(r_{t}, z_{t}, s_{t} = s' |s_{t-1} = s, a_{0:t}) p(r_{0:t-1}, z_{1:t-1}, s_{t-1} = s | a_{0:t-1}) \\
+&= \sum_s p(r_{t}, z_{t}, s_{t} = s' |s_{t-1} = s, a_{0:t}) \alpha_{t-1}(s) \\
+&= \sum_s p(r_{t} |z_{t}, s_{t} = s', s_{t-1} = s, a_{0:t})p(z_{t}, s_{t} = s' |s_{t-1} = s, a_{0:t}) \alpha_{t-1}(s) \\
+&= \sum_s R(r_{t} |s', a_{t})p(z_{t}, s_{t} = s' |s_{t-1} = s, a_{0:t}) \alpha_{t-1}(s) \\
+&= \sum_s R(r_{t} |s', a_{t})p(z_{t} |s_{t} = s', s_{t-1} = s, a_{0:t})p(s_{t} = s' |s_{t-1} = s, a_{0:t}) \alpha_{t-1}(s) \\
+&= R(r_{t} |s', a_{t})Z(z_{t} |s', a_{t-1}) \sum_s T(s' |s, a_{t-1}) \alpha_{t-1}(s) \\
+\alpha_{n}(s') &= p(r_{0:n-1}, z_{1:n}, s_{n} = s' | a_{0:n-1}) \\
+&= \sum_s p(r_{0:n-1}, z_{1:n}, s_{n} = s', s_{n-1} = s | a_{0:n-1}) \\
+&= \sum_s p(z_{n} | s_{n} = s', a_{n-1}) p(s_{n} = s' |s_{n-1} = s, a_{0:n-1}) p(r_{0:n-1}, z_{1:n-1}, s_{n-1} = s | a_{0:n-1}) \\
+&= Z(z_n | s', a_{n-1}) \sum_s T(s' |s, a_{n-1}) \alpha_{n-1}(s)
+\end{align}
+Without the reward observations, you just remove the reward factors:
+\begin{align}
+\alpha_{0}(s') &= \pi(s') \\
+\alpha_{t}(s') &= Z(z_{t} |s', a_{t-1}) \sum_s T(s' |s, a_{t-1}) \alpha_{t-1}(s)
 \end{align}
 
-If we were to treat the rewards as a set of discrete observations, then the update for each reward $k$ is
-
+Now suppose you have the dynamics in matrix form. The transitions are $T(s,s',a) = p(s'|s,a)$. Let $T_a = T(\cdot,\cdot,a)$. The observations are $Z(s',z,a) = p(z|s',a)$. Let $Z_a$ be similar. The reward obs are $R(s,r,a) = p(r|s,a)$ with $R_a$ being similar. Let $\pi$ be a column vector of the initial state distribution. Then (let $\operatorname{.*}$ be elementwise multiplication)
 \begin{align}
-\tilde{R}(r|s,a) &= \frac{\sum_{t=1}^{T}\delta(r_t,r) \gamma_{s}(t)\delta(a_t,a)}{\sum_{t=1}^{T}\gamma_{s}(t)\delta(a_t,a)}
+\alpha_0 &= R(\cdot,r_0,a_0) \operatorname{.*} \pi \\
+\alpha_t &= R(\cdot, r_t, a_t) \operatorname{.*} Z(\cdot, z_t, a_{t-1}) \operatorname{.*} \left( T(\cdot,\cdot,a_{t-1})^T \alpha_{t-1} \right) \\
+\alpha_n &= Z(\cdot, z_n, a_{n-1}) \operatorname{.*} \left( T(\cdot,\cdot,a_{t-n})^T \alpha_{n-1} \right)
 \end{align}
 
-and if we took expected value of the reward that would be
-
+Note that it's perfectly fine to scale each time step of $\alpha_t(s')$ by some constant $C_t$. Then every time step just results in a scaled version of the $\alpha$'s.
 \begin{align}
-\tilde{R}(s,a) &= \sum_r r\tilde{R}(r|s,a)
+A_{0}(s') &= C_0 R(r_{0} | s',a_{0}) \pi(s') \\
+A_{t}(s') &= C_t R(r_{t} |s', a_{t}) Z(z_{t} |s', a_{t-1}) \sum_s T(s' |s, a_{t-1}) A_{t-1}(s) \\
+&= C_t R(r_{t} |s', a_{t}) Z(z_{t} |s', a_{t-1}) \sum_s T(s' |s, a_{t-1}) C_{0:t-1} \alpha_{t-1}(s) \\
+&= C_{0:t}\alpha_t(s')
+\end{align}
+where $C_{i:j} = \prod_{k=i}^j C_k$. This holds without reward observations as well. We can use $\alpha$ to calculate the likelihood of the observations:
+\begin{align}
+p(h(n) | a_{0:n-1}) &= \sum_{s'} \alpha_n(s') \\
+&= \frac{1}{C_{0:n}} \sum_{s'} A_n(s')
 \end{align}
 
-which reduces to the first equation.
+Next up are the $\beta$'s, which is the probability of the future observations given the current state and all actions:
+\begin{align}
+\beta_n(s) &= p(r_{n+1:n-1}, z_{n+1:n} | s_n = s, a_{0:n-1}) \\
+&= \mathbf{1} \\
+\beta_{n-1}(s) &= p(r_{n:n-1}, z_{n:n} | s_{n-1} = s, a_{0:n-1}) \\
+&= \sum_{s'} p(z_{n:n}, s_n = s'| s_{n-1} = s, a_{0:n-1}) \\
+&= \sum_{s'} p(z_{n:n}| s_n = s', s_{n-1} = s, a_{0:n-1}) p(s_n = s'| s_{n-1} = s, a_{0:n-1}) \\
+&= \sum_{s'} Z(z_{n}|s', a_{n-1}) T(s'| s, a_{n-1}) \beta_n(s') \\
+\beta_{t}(s) &= p(r_{t+1:n-1}, z_{t+1:n} | s_{t} = s, a_{0:n-1}) \\
+&= \sum_{s'} p(r_{t+1:n-1}, z_{t+1:n}, s_{t+1} = s' | s_{t} = s, a_{0:n-1}) \\
+&= \sum_{s'} T(s' | s, a_{t}) p(r_{t+1:n-1}, z_{t+1:n} |s_{t+1} = s', s_{t} = s, a_{0:n-1}) \\
+&= \sum_{s'} T(s' | s, a_{t}) p(r_{t+1}, z_{t+1} |s_{t+1} = s', a_{0:n-1}) \beta_{t+1}(s') \\
+&= \sum_{s'} T(s' | s, a_{t}) R(r_{t+1} |s', a_{t+1}) Z(z_{t+1} |s', a_{t}) \beta_{t+1}(s') \\
+\end{align}
+In matrix form, the calculations become
+\begin{align}
+\beta_n &= \mathbf{(1)} \\
+\beta_{n-1} &= T(\cdot,\cdot,a_{n-1}) \left( Z(\cdot, z_n, a_{n-1}) \operatorname{.*} \beta_n \right) \\
+\beta_t &= T(\cdot,\cdot,a_{t}) \left( R(\cdot, r_{t+1}, a_{t+1}) \operatorname{.*} Z(\cdot, z_{t+1}, a_{t}) \operatorname{.*} \beta_{t+1} \right)
+\end{align}
+We can also compute scaled versions as well:
+\begin{align}
+B_t(s) &= D_t \sum_{s'} T(s' | s, a_{t}) R(r_{t+1} |s', a_{t+1}) Z(z_{t+1} |s', a_{t}) B_{t+1}(s') \\
+&= D_t \sum_{s'} T(s' | s, a_{t}) R(r_{t+1} |s', a_{t+1}) Z(z_{t+1} |s', a_{t}) D_{t+1:n} \beta_{t+1}(s') \\
+&= D_{t:n} \beta_t(s)
+\end{align}
+Now for what we actually want, the $\gamma$'s.
+\begin{align}
+\gamma_t(s) &= p(s_t = s | r_{0:n-1}, z_{1:n}, a_{0:n-1}) \\
+&=  \frac{p(s_t = s, r_{0:n-1}, z_{1:n} | a_{0:n-1})}{p(r_{0:n-1}, z_{1:n} | a_{0:n-1})} \\
+&=  \frac{p(s_t = s, r_{0:n-1}, z_{1:n} | a_{0:n-1})}{ \sum_s p(r_{0:n-1}, z_{1:n}, s_t = s | a_{0:n-1})} \\
+p(s_t = s, r_{0:n-1}, z_{1:n} | a_{0:n-1}) &=  p(s_t = s, r_{0:t}, z_{1:t}, r_{t+1:n-1}, z_{t+1:n} | a_{0:n-1}) \\
+&=  p(r_{t+1:n-1}, z_{t+1:n} | s_t = s, a_{0:n-1}) p(s_t = s, r_{0:t}, z_{1:t}, | a_{0:n-1}) \\
+&=  \beta_t(s) \alpha_t(s) \\
+\gamma_t(s) &=  \frac{B_t(s) A_t(s)}{ \sum_s B_t(s) A_t(s)} \\
+\gamma_t(s) &=  \frac{B_t(s) A_t(s)}{ \sum_s B_t(s) A_t(s)}
+\end{align}
+where we can also use the scaled versions, since the constants cancel out.
+
+\subsection{Xi's}
+
+
+
+\subsection{Old Derivations}
 
 Now let's derive the other quantities when treating rewards as observations is a discrete distribution. Note in the history, there is no first observation. The actions are given.
 \begin{align}
@@ -133,6 +225,28 @@ and just for completeness the update for regular obs is very similar (except you
 \begin{align}
 \tilde{Z}(z|s',a) &= \frac{\sum_{t=1}^T \gamma_{s'}(t)\delta(a_{t-1},a)\delta(z_t,z)}{\sum_{t=1}^T \gamma_{s'}(t)\delta(a_{t-1},a)}
 \end{align}
+
+\section{EM with rewards}
+
+If we just want to estimate rewards (without treating them as observations) then we can do it very simply
+
+\begin{align}
+\tilde{R}(s,a) &= \frac{\sum_{t=1}^{T}\gamma_{s}(t)\delta(a_t,a) r_t}{\sum_{t=1}^{T}\gamma_{s}(t)\delta(a_t,a)}
+\end{align}
+
+If we were to treat the rewards as a set of discrete observations, then the update for each reward $k$ is
+
+\begin{align}
+\tilde{R}(r|s,a) &= \frac{\sum_{t=1}^{T}\delta(r_t,r) \gamma_{s}(t)\delta(a_t,a)}{\sum_{t=1}^{T}\gamma_{s}(t)\delta(a_t,a)}
+\end{align}
+
+and if we took expected value of the reward that would be
+
+\begin{align}
+\tilde{R}(s,a) &= \sum_r r\tilde{R}(r|s,a)
+\end{align}
+
+which reduces to the first equation.
 
 \section{POMDP with reward obs}
 
